@@ -1,0 +1,7 @@
+{
+  "url": "ws://192.168.1.100:8080/agent",
+  "token": "xxxxxx",
+  "heartbeatMs": 10000,
+  "backoffBaseMs": 1000,
+  "backoffCapMs": 60000
+}
