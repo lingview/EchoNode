@@ -71,7 +71,10 @@ target_include_directories(client PRIVATE
         ${PROJECT_SOURCE_DIR}/platform
         ${PROJECT_SOURCE_DIR})
 set_target_properties(client PROPERTIES OUTPUT_NAME echonode_agent)
-target_link_libraries(client PRIVATE echonode_common net_deps ${PLATFORM_LIBS})
+target_link_libraries(client PRIVATE echonode_common net_deps ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
+if(WIN32)
+    target_link_options(client PRIVATE -mwindows)
+endif()
 
 add_executable(platform_test
         tests/test_platform.cpp
@@ -84,7 +87,7 @@ target_link_libraries(platform_test PRIVATE echonode_common ${PLATFORM_LIBS})
 add_executable(net_test
         tests/test_net.cpp
         net/WsClient.cpp)
-target_link_libraries(net_test PRIVATE echonode_common net_deps)
+target_link_libraries(net_test PRIVATE echonode_common net_deps ${ECHONODE_TLS_LIBS})
 
 add_executable(config_test
         tests/test_config.cpp)
@@ -111,9 +114,9 @@ target_compile_definitions(core_test PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(core_test PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(core_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(core_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(core_test PRIVATE echonode_common pthread X11)
+    target_link_libraries(core_test PRIVATE echonode_common pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(executor_test
@@ -142,9 +145,9 @@ target_compile_definitions(executor_test PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(executor_test PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(executor_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(executor_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(executor_test PRIVATE echonode_common pthread X11)
+    target_link_libraries(executor_test PRIVATE echonode_common pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(session_test
@@ -176,9 +179,9 @@ target_compile_definitions(ps_test PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(ps_test PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(ps_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(ps_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(ps_test PRIVATE echonode_common pthread X11)
+    target_link_libraries(ps_test PRIVATE echonode_common pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(file_test
@@ -207,9 +210,9 @@ target_compile_definitions(file_test PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(file_test PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(file_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(file_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(file_test PRIVATE echonode_common pthread X11)
+    target_link_libraries(file_test PRIVATE echonode_common pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(shot_test
@@ -234,7 +237,7 @@ target_compile_definitions(shot_test PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(shot_test PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(shot_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(shot_test PRIVATE echonode_common ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(shot_test PRIVATE echonode_common pthread X11)
+    target_link_libraries(shot_test PRIVATE echonode_common pthread X11 ${ECHONODE_TLS_LIBS})
 endif()

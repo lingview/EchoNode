@@ -2,18 +2,20 @@
 
 #include <websocketpp/client.hpp>
 #include <websocketpp/config/asio_no_tls_client.hpp>
+#include <websocketpp/config/asio_client.hpp>
 
+#include <asio/ssl.hpp>
+#include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <memory>
 #include <mutex>
 #include <thread>
-
-using WsEndpoint = websocketpp::client<websocketpp::config::asio_client>;
-using WsMessagePtr = websocketpp::config::asio_client::message_type::ptr;
-using WsHdl = websocketpp::connection_hdl;
+#include <vector>
 
 namespace echonode::net {
 
-struct WsClient::Impl {
+struct WsBackend {
     std::string url;
     int backoffBaseMs = 1000;
     int backoffCapMs = 60000;
@@ -24,32 +26,91 @@ struct WsClient::Impl {
     WsClient::BinaryHandler onBinary;
     WsClient::CloseHandler onClose;
 
-    WsEndpoint endpoint;
-    WsHdl currentHdl;
+    websocketpp::connection_hdl currentHdl;
     std::mutex hdlMutex;
-    bool connected = false;    // 持锁访问
-    bool openedThisRun = false; // 本次是否真正连上过
+    bool connected = false;
+    bool openedThisRun = false;
 
     std::atomic<bool> running{false};
     std::thread worker;
 
-    // 分片睡眠，便于 stop 及时打断退避等待
+    virtual ~WsBackend() = default;
+    virtual void initEndpoint() = 0;
+    virtual void runLoop() = 0;
+    virtual bool sendText(const std::string& text) = 0;
+    virtual bool sendBinary(const void* data, size_t len) = 0;
+    virtual void teardown() = 0;
+
     void sleepBackoff() {
-        for (int done = 0; done < backoffMs && running; done += 50) {
+        for (int done = 0; done < backoffMs && running; done += 50)
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+    void dropConnection() {
+        std::lock_guard<std::mutex> lk(hdlMutex);
+        currentHdl.reset();
+        connected = false;
+    }
+    bool connectedNow() {
+        std::lock_guard<std::mutex> lk(hdlMutex);
+        return connected;
+    }
+};
+
+template <class Cfg, bool IsTls>
+struct WsBackendT final : WsBackend {
+    using Endpoint = websocketpp::client<Cfg>;
+    using MsgPtr = typename Cfg::message_type::ptr;
+    Endpoint endpoint;
+
+    void initEndpoint() override {
+        endpoint.clear_access_channels(websocketpp::log::alevel::all);
+        endpoint.clear_error_channels(websocketpp::log::elevel::all);
+        endpoint.init_asio();
+        if constexpr (IsTls) {
+            endpoint.set_tls_init_handler([](websocketpp::connection_hdl) {
+                auto ctx = std::make_shared<asio::ssl::context>(
+                    asio::ssl::context::tls_client);
+                ctx->set_verify_mode(asio::ssl::verify_none);
+                return ctx;
+            });
         }
+
+        WsBackend* self = this;
+        endpoint.set_open_handler([self](websocketpp::connection_hdl hdl) {
+            {
+                std::lock_guard<std::mutex> lk(self->hdlMutex);
+                self->currentHdl = hdl;
+                self->connected = true;
+                self->openedThisRun = true;
+                self->backoffMs = self->backoffBaseMs;
+            }
+            if (self->onOpen) self->onOpen();
+        });
+        endpoint.set_message_handler([self](websocketpp::connection_hdl, MsgPtr msg) {
+            if (msg->get_opcode() == websocketpp::frame::opcode::binary) {
+                if (self->onBinary) {
+                    const auto& payload = msg->get_payload();
+                    self->onBinary(payload.data(), payload.size());
+                }
+                return;
+            }
+            if (self->onText) self->onText(msg->get_payload());
+        });
+        auto drop = [self](websocketpp::connection_hdl) { self->dropConnection(); };
+        endpoint.set_close_handler(drop);
+        endpoint.set_fail_handler(drop);
     }
 
-    void runLoop() {
+    void runLoop() override {
         backoffMs = backoffBaseMs;
         while (running) {
             websocketpp::lib::error_code ec;
             auto conn = endpoint.get_connection(url, ec);
             if (!ec) {
                 openedThisRun = false;
-                endpoint.get_io_service().restart(); // stop() 后的 start() 复用需要 restart
+                endpoint.get_io_service().restart();
                 endpoint.connect(conn);
-                endpoint.run(); // 阻塞至连接断开（io_service 无事件即返回）
+                endpoint.run();
 
                 if (openedThisRun) {
                     openedThisRun = false;
@@ -63,48 +124,74 @@ struct WsClient::Impl {
         }
     }
 
-    void dropConnection() {
-        std::lock_guard<std::mutex> lk(hdlMutex);
-        currentHdl.reset();
-        connected = false;
+    bool sendText(const std::string& text) override {
+        if (!running) return false;
+        websocketpp::connection_hdl hdl;
+        {
+            std::lock_guard<std::mutex> lk(hdlMutex);
+            if (!connected) return false;
+            hdl = currentHdl;
+        }
+        auto payload = std::make_shared<std::string>(text);
+        websocketpp::lib::asio::post(endpoint.get_io_service(),
+                                     [this, hdl, payload] {
+                                         websocketpp::lib::error_code ec;
+                                         endpoint.send(hdl, *payload,
+                                                       websocketpp::frame::opcode::text, ec);
+                                     });
+        return true;
+    }
+
+    bool sendBinary(const void* data, size_t len) override {
+        if (!running) return false;
+        websocketpp::connection_hdl hdl;
+        {
+            std::lock_guard<std::mutex> lk(hdlMutex);
+            if (!connected) return false;
+            hdl = currentHdl;
+        }
+        auto payload = std::make_shared<std::vector<uint8_t>>(
+            static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + len);
+        websocketpp::lib::asio::post(endpoint.get_io_service(),
+                                     [this, hdl, payload] {
+                                         websocketpp::lib::error_code ec;
+                                         endpoint.send(hdl, payload->data(), payload->size(),
+                                                       websocketpp::frame::opcode::binary, ec);
+                                     });
+        return true;
+    }
+
+    void teardown() override {
+        bool needClose = false;
+        websocketpp::connection_hdl hdl;
+        {
+            std::lock_guard<std::mutex> lk(hdlMutex);
+            needClose = connected;
+            hdl = currentHdl;
+        }
+        if (needClose) {
+            websocketpp::lib::asio::post(endpoint.get_io_service(), [this, hdl] {
+                websocketpp::lib::error_code ec;
+                endpoint.close(hdl, websocketpp::close::status::normal, "stop", ec);
+            });
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        }
+        endpoint.get_io_service().stop();
     }
 };
 
-WsClient::WsClient(std::string url, int backoffBaseMs, int backoffCapMs)
-    : impl_(new Impl) {
+WsClient::WsClient(std::string url, int backoffBaseMs, int backoffCapMs) {
+    const bool tls = (url.rfind("wss://", 0) == 0);
+    if (tls)
+        impl_ = std::make_unique<WsBackendT<websocketpp::config::asio_tls_client, true>>();
+    else
+        impl_ = std::make_unique<WsBackendT<websocketpp::config::asio_client, false>>();
+
     impl_->url = std::move(url);
     impl_->backoffBaseMs = backoffBaseMs;
     impl_->backoffCapMs = backoffCapMs;
-
-    auto& p = *impl_;
-    p.endpoint.clear_access_channels(websocketpp::log::alevel::all);
-    p.endpoint.clear_error_channels(websocketpp::log::elevel::all);
-    p.endpoint.init_asio();
-
-    p.endpoint.set_open_handler([&p](WsHdl hdl) {
-        {
-            std::lock_guard<std::mutex> lk(p.hdlMutex);
-            p.currentHdl = hdl;
-            p.connected = true;
-            p.openedThisRun = true;
-            p.backoffMs = p.backoffBaseMs; // 连上即重置退避
-        }
-        // 锁外回调：onOpen 内会 sendText 再次加锁，持锁回调会自死锁
-        if (p.onOpen) p.onOpen();
-    });
-    p.endpoint.set_message_handler([&p](WsHdl, WsMessagePtr msg) {
-        if (msg->get_opcode() == websocketpp::frame::opcode::binary) {
-            if (p.onBinary) {
-                const auto& payload = msg->get_payload();
-                p.onBinary(payload.data(), payload.size());
-            }
-            return;
-        }
-        if (p.onText) p.onText(msg->get_payload());
-    });
-    auto drop = [&p](WsHdl) { p.dropConnection(); };
-    p.endpoint.set_close_handler(drop);
-    p.endpoint.set_fail_handler(drop);
+    impl_->backoffMs = backoffBaseMs;
+    impl_->initEndpoint();
 }
 
 WsClient::~WsClient() { stop(); }
@@ -120,76 +207,20 @@ void WsClient::setBinaryHandler(BinaryHandler onBinary) {
 }
 
 void WsClient::start() {
-    auto& p = *impl_;
     bool expected = false;
-    if (!p.running.compare_exchange_strong(expected, true)) return;
-    p.worker = std::thread([&p] { p.runLoop(); });
+    if (!impl_->running.compare_exchange_strong(expected, true)) return;
+    WsBackend* b = impl_.get();
+    b->worker = std::thread([b] { b->runLoop(); });
 }
 
 void WsClient::stop() {
-    auto& p = *impl_;
-    if (!p.running.exchange(false)) return;
-
-    // 先优雅关闭当前连接，服务端才能及时感知下线
-    bool needClose = false;
-    WsHdl hdl;
-    {
-        std::lock_guard<std::mutex> lk(p.hdlMutex);
-        needClose = p.connected;
-        hdl = p.currentHdl;
-    }
-    if (needClose) {
-        websocketpp::lib::asio::post(p.endpoint.get_io_service(), [&p, hdl] {
-            websocketpp::lib::error_code ec;
-            p.endpoint.close(hdl, websocketpp::close::status::normal, "stop", ec);
-        });
-        // 给 close frame 一个发送窗口再终止 io
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    }
-    p.endpoint.get_io_service().stop();
-    if (p.worker.joinable()) p.worker.join();
+    if (!impl_->running.exchange(false)) return;
+    impl_->teardown();
+    if (impl_->worker.joinable()) impl_->worker.join();
 }
 
-bool WsClient::sendBinary(const void* data, size_t len) {
-    auto& p = *impl_;
-    if (!p.running) return false;
+bool WsClient::sendText(const std::string& text) { return impl_->sendText(text); }
 
-    WsHdl hdl;
-    {
-        std::lock_guard<std::mutex> lk(p.hdlMutex);
-        if (!p.connected) return false;
-        hdl = p.currentHdl;
-    }
-
-    // 复制成共享缓冲投递回网络线程，避免调用方生命周期问题
-    auto payload = std::make_shared<std::vector<uint8_t>>(
-        static_cast<const uint8_t*>(data), static_cast<const uint8_t*>(data) + len);
-    websocketpp::lib::asio::post(p.endpoint.get_io_service(), [&p, hdl, payload] {
-        websocketpp::lib::error_code ec;
-        p.endpoint.send(hdl, payload->data(), payload->size(),
-                        websocketpp::frame::opcode::binary, ec);
-    });
-    return true;
-}
-
-bool WsClient::sendText(const std::string& text) {
-    auto& p = *impl_;
-    if (!p.running) return false;
-
-    WsHdl hdl;
-    {
-        std::lock_guard<std::mutex> lk(p.hdlMutex);
-        if (!p.connected) return false;
-        hdl = p.currentHdl;
-    }
-
-    // 投递回网络线程发送，endpoint 不允许跨线程并发 send
-    auto payload = std::make_shared<std::string>(text);
-    websocketpp::lib::asio::post(p.endpoint.get_io_service(), [&p, hdl, payload] {
-        websocketpp::lib::error_code ec;
-        p.endpoint.send(hdl, *payload, websocketpp::frame::opcode::text, ec);
-    });
-    return true;
-}
+bool WsClient::sendBinary(const void* data, size_t len) { return impl_->sendBinary(data, len); }
 
 } // namespace echonode::net
