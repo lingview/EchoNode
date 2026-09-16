@@ -94,29 +94,35 @@ bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
     };
 
     if (ii.hbmColor) {
-        // 彩色光标：无 alpha 时透明由 AND 掩码表达
         std::vector<uint8_t> color;
         extractBits(ii.hbmColor, 0, h, color);
+        BITMAP bmColor{};
+        GetObject(ii.hbmColor, sizeof(bmColor), &bmColor);
+        const bool is32 = bmColor.bmBitsPixel == 32;
         std::vector<uint8_t> andBits;
-        extractBits(ii.hbmMask, h, h, andBits); // AND 半区在掩码顶部
-        bool hasAlpha = false;
-        for (size_t i = 3; i < color.size(); i += 4) {
-            if (color[i] != 0) { hasAlpha = true; break; }
-        }
+        if (!is32) extractBits(ii.hbmMask, h, h, andBits); // AND 半区在掩码顶部
         for (int y = 0; y < h; ++y) {
             const int srcY = h - 1 - y;
             for (int x = 0; x < w; ++x) {
                 const uint8_t* s =
                     &color[(static_cast<size_t>(srcY) * w + x) * 4];
-                const uint8_t* a =
-                    &andBits[(static_cast<size_t>(srcY) * w + x) * 4];
                 uint8_t* d = &rgba[(static_cast<size_t>(y) * w + x) * 4];
-                d[0] = s[2];
-                d[1] = s[1];
-                d[2] = s[0];
-                if (hasAlpha) {
-                    d[3] = s[3];
+                if (is32) {
+                    const int a = s[3];
+                    d[3] = static_cast<uint8_t>(a);
+                    if (a > 0) {
+                        d[0] = static_cast<uint8_t>(std::min(255, s[2] * 255 / a)); // R
+                        d[1] = static_cast<uint8_t>(std::min(255, s[1] * 255 / a)); // G
+                        d[2] = static_cast<uint8_t>(std::min(255, s[0] * 255 / a)); // B
+                    } else {
+                        d[0] = d[1] = d[2] = 0;
+                    }
                 } else {
+                    const uint8_t* a =
+                        &andBits[(static_cast<size_t>(srcY) * w + x) * 4];
+                    d[0] = s[2];
+                    d[1] = s[1];
+                    d[2] = s[0];
                     const bool andBit = a[0] != 0;
                     const bool black =
                         s[0] == 0 && s[1] == 0 && s[2] == 0;
@@ -399,6 +405,12 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                 // 首帧未就绪时 rgb 内容未定义，不能扫描/建网格，跳过等平台给出真画面
                 if (!fresh && rgb.empty()) continue;
 
+                // 本帧元数据（仅 GPU 路径权威）：脏矩形决定发哪些 tile，移动块走 0x07
+                std::vector<echonode::platform::DirtyRect> dirtyRects;
+                std::vector<echonode::platform::MoveRect> moveRects;
+                const bool haveMeta =
+                    fresh && capture->lastFrameMetadata(dirtyRects, moveRects);
+
                 // 分辨率变化：重建 tile 网格并强制全量
                 if (w != frameW || h != frameH) {
                     frameW = w;
@@ -423,29 +435,47 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                         pending.clear();
                         pendingHead = 0;
                     }
-                    for (int ty = 0; ty < gridH; ++ty) {
-                        for (int tx = 0; tx < gridW; ++tx) {
-                            const int x0 = tx * kTile;
-                            const int y0 = ty * kTile;
-                            const int x1 = std::min(x0 + kTile, w);
-                            const int y1 = std::min(y0 + kTile, h);
-                            uint64_t sum = 0;
-                            for (int y = y0; y < y1; ++y) {
-                                const uint8_t* p =
-                                    &rgb[static_cast<size_t>(y) * w * 3 +
-                                         static_cast<size_t>(x0) * 3];
-                                for (int x = x0; x < x1; ++x) {
-                                    sum += p[0] + p[1] + p[2];
-                                    p += 3;
+                    if (haveMeta && !keyframe) {
+                        // 脏矩形→标记相交 tile，免去全帧字节和扫描
+                        for (const auto& dr : dirtyRects) {
+                            const int tx0 = std::max(0, dr.x / kTile);
+                            const int ty0 = std::max(0, dr.y / kTile);
+                            const int tx1 = std::min(gridW - 1, (dr.x + dr.w - 1) / kTile);
+                            const int ty1 = std::min(gridH - 1, (dr.y + dr.h - 1) / kTile);
+                            for (int ty = ty0; ty <= ty1; ++ty)
+                                for (int tx = tx0; tx <= tx1; ++tx) {
+                                    const size_t idx = static_cast<size_t>(ty) * gridW + tx;
+                                    if (!queued[idx]) {
+                                        queued[idx] = 1;
+                                        pending.emplace_back(tx, ty);
+                                    }
                                 }
-                            }
-                            const size_t idx =
-                                static_cast<size_t>(ty) * gridW + tx;
-                            if (keyframe || sum != tileSums[idx]) {
-                                tileSums[idx] = sum;
-                                if (!queued[idx]) {
-                                    queued[idx] = 1;
-                                    pending.emplace_back(tx, ty);
+                        }
+                    } else {
+                        for (int ty = 0; ty < gridH; ++ty) {
+                            for (int tx = 0; tx < gridW; ++tx) {
+                                const int x0 = tx * kTile;
+                                const int y0 = ty * kTile;
+                                const int x1 = std::min(x0 + kTile, w);
+                                const int y1 = std::min(y0 + kTile, h);
+                                uint64_t sum = 0;
+                                for (int y = y0; y < y1; ++y) {
+                                    const uint8_t* p =
+                                        &rgb[static_cast<size_t>(y) * w * 3 +
+                                             static_cast<size_t>(x0) * 3];
+                                    for (int x = x0; x < x1; ++x) {
+                                        sum += p[0] + p[1] + p[2];
+                                        p += 3;
+                                    }
+                                }
+                                const size_t idx =
+                                    static_cast<size_t>(ty) * gridW + tx;
+                                if (keyframe || sum != tileSums[idx]) {
+                                    tileSums[idx] = sum;
+                                    if (!queued[idx]) {
+                                        queued[idx] = 1;
+                                        pending.emplace_back(tx, ty);
+                                    }
                                 }
                             }
                         }
@@ -511,6 +541,27 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                             binarySender_(f.data(), f.size());
                         }
                     }
+                }
+
+                // 发送 0x07 移动块（先于脏 tile，前端先搬移再叠新内容）
+                if (haveMeta && !keyframe && !moveRects.empty() && binarySender_) {
+                    std::vector<uint8_t> mf(23 + moveRects.size() * 12);
+                    const auto idBytes = echonode::common::uuidToBytes(taskId);
+                    for (int i = 0; i < 16; ++i) mf[i] = idBytes[i];
+                    mf[16] = (seq >> 24) & 0xFF; mf[17] = (seq >> 16) & 0xFF;
+                    mf[18] = (seq >> 8) & 0xFF; mf[19] = seq & 0xFF;
+                    mf[20] = 0x07;
+                    auto put16 = [&](size_t off, int v) {
+                        mf[off] = (v >> 8) & 0xFF; mf[off + 1] = v & 0xFF;
+                    };
+                    put16(21, static_cast<int>(moveRects.size()));
+                    size_t o = 23;
+                    for (const auto& m : moveRects) {
+                        put16(o, m.sx); put16(o + 2, m.sy); put16(o + 4, m.dx);
+                        put16(o + 6, m.dy); put16(o + 8, m.w); put16(o + 10, m.h);
+                        o += 12;
+                    }
+                    binarySender_(mf.data(), mf.size());
                 }
 
                 // 编码并发送脏 tile（无脏 tile 则不发）；分批发送防单帧过大

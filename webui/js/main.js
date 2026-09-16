@@ -13,8 +13,7 @@ function showMain() {
   Ws.connect();
   refreshAgents()
 }
-async
-function refreshAgents() {
+async function refreshAgents() {
   try {
     const agents = await Api.agents();
     renderAgents(agents)

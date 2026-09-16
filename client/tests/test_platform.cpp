@@ -105,6 +105,30 @@ void testCaptureFirstFrame() {
     }
 }
 
+void testFrameMetadata() {
+    try {
+        auto cap = createScreenCapture();
+        std::vector<uint8_t> rgb;
+        int w = 0, h = 0;
+        cap->captureScaledRgb(rgb, w, h, 0.5);
+        std::vector<DirtyRect> dirty;
+        std::vector<MoveRect> moves;
+        const bool has = cap->lastFrameMetadata(dirty, moves);
+        std::cout << "  lastFrameMetadata=" << has << " dirty=" << dirty.size()
+                  << " moves=" << moves.size() << "\n";
+        bool sane = true;
+        for (const auto& d : dirty)
+            if (d.x < 0 || d.y < 0 || d.w < 0 || d.h < 0 || d.x > w || d.y > h) sane = false;
+        for (const auto& m : moves)
+            if (m.sx < 0 || m.sy < 0 || m.dx < 0 || m.dy < 0 || m.w < 0 || m.h < 0 ||
+                m.sx > w || m.sy > h || m.dx > w || m.dy > h)
+                sane = false;
+        check(sane, "IScreenCapture::lastFrameMetadata 矩形合法（或无元数据）");
+    } catch (const PlatformError& e) {
+        std::cout << "[SKIP] lastFrameMetadata: " << e.what() << "\n";
+    }
+}
+
 }
 
 int main() {
@@ -115,6 +139,7 @@ int main() {
     testShellSpawn(osName);
     testScreenCapture();
     testCaptureFirstFrame();
+    testFrameMetadata();
     std::cout << (gFailed == 0 ? "== 全部通过 ==\n" : "== 存在失败项 ==\n");
     return gFailed == 0 ? 0 : 1;
 }

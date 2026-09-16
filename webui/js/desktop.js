@@ -104,6 +104,23 @@ const DesktopPanel = {
       }
       return true;
     }
+    if (u8[20] === 0x07) {
+
+      if (!this.canvas || !this.active) return true;
+      const dv = new DataView(frame);
+      const count = dv.getUint16(21);
+      const snap = this._snapshot();
+      snap.getContext("2d").drawImage(this.canvas, 0, 0);
+      for (let i = 0; i < count; ++i) {
+        const o = 23 + i * 12;
+        const sx = dv.getUint16(o), sy = dv.getUint16(o + 2);
+        const dx = dv.getUint16(o + 4), dy = dv.getUint16(o + 6);
+        const w = dv.getUint16(o + 8), h = dv.getUint16(o + 10);
+        if (w > 0 && h > 0)
+          this.ctx.drawImage(snap, sx, sy, w, h, dx, dy, w, h);
+      }
+      return true;
+    }
     if (u8[20] === 0x06) {
       if (!this.canvas || !this.active) return true;
       const dv = new DataView(frame);
@@ -135,6 +152,16 @@ const DesktopPanel = {
       bmp.close();
     }).catch(() => {});
     return true;
+  },
+
+  _snapshot() {
+    if (!this._snap || this._snap.width !== this.canvas.width ||
+        this._snap.height !== this.canvas.height) {
+      this._snap = document.createElement("canvas");
+      this._snap.width = this.canvas.width;
+      this._snap.height = this.canvas.height;
+    }
+    return this._snap;
   },
 
   bindInput() {

@@ -176,6 +176,10 @@ public:
     // 是否已交付过至少一帧（上层据此判断能不能拿「旧 out」当有效画面）
     bool delivered() const { return primed_; }
 
+    bool metadataValid() const { return metadataValid_; }
+    const std::vector<DirtyRect>& dirtyRects() const { return dirty_; }
+    const std::vector<MoveRect>& moveRects() const { return moves_; }
+
     // 取一帧并降采样为顶到底 RGB24。返回 false=本次无新画面（out 保持上次内容，
     // w/h 仍报按 scale 算出的真实尺寸）。allowBlock 只给首次 acquire 一个等待窗口
     bool nextFrame(std::vector<uint8_t>& out, int& w, int& h, double scale,
@@ -206,6 +210,46 @@ public:
         } guard{this};
 
         if (!hasNewImage && !first) return false;
+
+        dirty_.clear();
+        moves_.clear();
+        metadataValid_ = false;
+        if (fi.TotalMetadataBufferSize > 0) {
+            std::vector<uint8_t> meta(fi.TotalMetadataBufferSize);
+            UINT needed = 0;
+            if (SUCCEEDED(dup_->GetFrameDirtyRects(fi.TotalMetadataBufferSize,
+                                                   reinterpret_cast<RECT*>(meta.data()),
+                                                   &needed))) {
+                const RECT* r = reinterpret_cast<const RECT*>(meta.data());
+                for (UINT i = 0; i < needed / sizeof(RECT); ++i) {
+                    DirtyRect dr;
+                    dr.x = static_cast<int>(r[i].left * scale);
+                    dr.y = static_cast<int>(r[i].top * scale);
+                    dr.w = static_cast<int>((r[i].right - r[i].left) * scale);
+                    dr.h = static_cast<int>((r[i].bottom - r[i].top) * scale);
+                    if (dr.w < 0) dr.w = 0;
+                    if (dr.h < 0) dr.h = 0;
+                    dirty_.push_back(dr);
+                }
+            }
+            if (SUCCEEDED(dup_->GetFrameMoveRects(fi.TotalMetadataBufferSize,
+                                                  reinterpret_cast<DXGI_OUTDUPL_MOVE_RECT*>(meta.data()),
+                                                  &needed))) {
+                const DXGI_OUTDUPL_MOVE_RECT* m =
+                    reinterpret_cast<const DXGI_OUTDUPL_MOVE_RECT*>(meta.data());
+                for (UINT i = 0; i < needed / sizeof(DXGI_OUTDUPL_MOVE_RECT); ++i) {
+                    MoveRect mv;
+                    mv.sx = static_cast<int>(m[i].SourcePoint.x * scale);
+                    mv.sy = static_cast<int>(m[i].SourcePoint.y * scale);
+                    mv.dx = static_cast<int>(m[i].DestinationRect.left * scale);
+                    mv.dy = static_cast<int>(m[i].DestinationRect.top * scale);
+                    mv.w = static_cast<int>((m[i].DestinationRect.right - m[i].DestinationRect.left) * scale);
+                    mv.h = static_cast<int>((m[i].DestinationRect.bottom - m[i].DestinationRect.top) * scale);
+                    moves_.push_back(mv);
+                }
+            }
+            metadataValid_ = true;
+        }
 
         ComPtr<ID3D11Texture2D> tex;
         if (FAILED(res->QueryInterface(kTex2dIid, reinterpret_cast<void**>(tex.put()))))
@@ -314,6 +358,9 @@ private:
     int texW_ = 0; // maps 对应的源宽（尺寸变化判定）
     bool acquired_ = false;
     bool primed_ = false; // 是否已交付过至少一帧（区分冷启动与「桌面静止」）
+    std::vector<DirtyRect> dirty_;
+    std::vector<MoveRect> moves_;
+    bool metadataValid_ = false;
 };
 
 class ScreenCaptureWin : public IScreenCapture {
@@ -324,6 +371,7 @@ public:
     bool captureScaledRgb(std::vector<uint8_t>& out, int& w, int& h,
                           double scale) override {
         makeDpiAware();
+        lastFrameFromGpu_ = false;
         if (!gpuReady_) {
             const auto now = std::chrono::steady_clock::now();
             if (now >= gpuRetryAt_) {
@@ -348,7 +396,10 @@ public:
                 const bool got = gpu_.nextFrame(out, w, h, scale, !gpuBootstrapped_);
                 // 首帧用 GDI 一次性引导（静止桌面时 DXGI 不主动交付当前画面）；
                 // 但绝不能每帧回退 GDI：duplication 激活时 GDI 读回会拖到 267ms/帧
-                if (got || gpu_.delivered() || gpuBootstrapped_) return got;
+                if (got || gpu_.delivered() || gpuBootstrapped_) {
+                    lastFrameFromGpu_ = got;
+                    return got;
+                }
                 gdiScaledRgb(out, w, h, scale);
                 gpuBootstrapped_ = true;
                 return true;
@@ -363,6 +414,14 @@ public:
             }
         }
         return gdiScaledRgb(out, w, h, scale);
+    }
+
+    bool lastFrameMetadata(std::vector<DirtyRect>& dirty,
+                           std::vector<MoveRect>& moves) const override {
+        if (!lastFrameFromGpu_ || !gpu_.metadataValid()) return false;
+        dirty = gpu_.dirtyRects();
+        moves = gpu_.moveRects();
+        return true;
     }
 
     std::vector<uint8_t> captureBmp() override {
@@ -488,6 +547,7 @@ private:
 
     DupCapture gpu_;
     bool gpuReady_ = false;
+    bool lastFrameFromGpu_ = false;               // 上一帧是否来自 GPU（决定元数据是否可信）
     bool gpuBootstrapped_ = false;                // 首帧已用 GDI 引导过
     bool gpuWarned_ = false;                        // 回退日志只打一次
     std::chrono::steady_clock::time_point gpuRetryAt_{}; // 到点重试 GPU

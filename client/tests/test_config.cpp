@@ -51,7 +51,7 @@ int main() {
 
     {
         const std::string p = writeTemp("cfg_full.json",
-            R"({"url":"ws:
+            R"({"url":"ws://cfg-host:9000/agent","token":"tok-cfg",)"
             R"("heartbeatMs":5000,"backoffBaseMs":2000,"backoffCapMs":30000})");
         Args a{"--config", p.c_str()};
         Config c = Config::fromArgs(a.argc(), a.argv());
@@ -70,7 +70,7 @@ int main() {
 
     {
         const std::string p = writeTemp("cfg_override.json",
-            R"({"url":"ws:
+            R"({"url":"ws://file-url:1/agent","token":"file-tok","heartbeatMs":1111})");
         Args a{"ws://cli-url:2/agent", "cli-tok", "--heartbeat-ms", "2222",
                "--config", p.c_str()};
         Config c = Config::fromArgs(a.argc(), a.argv());
@@ -89,7 +89,7 @@ int main() {
     }
 
     {
-        const std::string p = writeTemp("cfg_broken.json", R"({"url": "ws:
+        const std::string p = writeTemp("cfg_broken.json", R"({"url": "ws://x", )");
         Args a{"--config", p.c_str()};
         Config c = Config::fromArgs(a.argc(), a.argv());
         check(!c.valid && !c.error.empty(), "JSON 语法错误被拒绝并报原因");
