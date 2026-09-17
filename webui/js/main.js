@@ -104,6 +104,9 @@ $("desk-stop-btn").addEventListener("click", () => {
 $("desk-fps").addEventListener("change", () => {
   if (currentAgentId && DesktopPanel.streams[currentAgentId]) DesktopPanel.start(currentAgentId)
 });
+$("desk-scale").addEventListener("change", () => {
+  if (currentAgentId && DesktopPanel.streams[currentAgentId]) DesktopPanel.start(currentAgentId)
+});
 document.querySelectorAll("#center-tabs .ctab").forEach(b => {
   b.addEventListener("click", () => {
     document.querySelectorAll("#center-tabs .ctab").forEach(x => x.classList.toggle("active", x === b));

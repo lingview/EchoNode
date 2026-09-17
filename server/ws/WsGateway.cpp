@@ -88,6 +88,8 @@ void WsGateway::stop() {
     for (auto& hdl : openConns_) {
         endpoint_.close(hdl, websocketpp::close::status::going_away, "server stop", ec);
     }
+
+    endpoint_.get_io_service().stop();
 }
 
 void WsGateway::sendText(WsHdl hdl, const std::string& text) {

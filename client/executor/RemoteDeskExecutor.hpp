@@ -1,15 +1,14 @@
-// 远程桌面执行器：
-// remote_start  抓屏线程按 fps 定时：captureBmp → RGB → JPEG → binary 帧(type 0x03)
-// remote_stop   停线程
-// remote_input  输入事件注入（走 task 通道高频到达，server 侧不落库）
-// binary 帧布局：16B taskId + 4B seq + 1B type(0x03) + JPEG 数据
+// 远程桌面执行器：抓屏线程按质量阶梯自适应出帧，浏览器经 desk_stat 回传驱动升降档
 #pragma once
 #include "IExecutor.hpp"
 #include "platform/IInputInjector.hpp"
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
+#include <string>
 #include <thread>
+#include <vector>
 
 namespace echonode::executor {
 
@@ -22,25 +21,35 @@ public:
     void setBinarySender(BinarySender sender) { binarySender_ = std::move(sender); }
     void setResultSender(ResultSender sender) { resultSender_ = std::move(sender); }
     void setInputInjector(InjectorPtr inj) { injector_ = std::move(inj); }
+    void setStatsEnabled(bool on) { statsEnabled_ = on; }
+
+    void onDeskStat(int recvFps, int stallMs, uint32_t lastSeq);
 
     std::vector<std::string> actions() const override;
     protocol::TaskResult execute(protocol::Task task) override;
     ~RemoteDeskExecutor() override;
 
 private:
-    void startLoop(const std::string& taskId, int fps, int quality);
+    struct QLevel {
+        double scale;
+        int quality;
+        int fps;
+    };
+    void startLoop(std::string taskId, std::vector<QLevel> ladder);
     void stopLoop();
 
     BinarySender binarySender_;
     ResultSender resultSender_;
     InjectorPtr injector_;
+    bool statsEnabled_ = false;
 
     std::thread worker_;
     std::atomic<bool> running_{false};
-    std::string streamTaskId_; // 当前流的 taskId（帧头用）
-    int fps_ = 8;
-    int quality_ = 60;
-    double scale_ = 0.5; // 降采样系数（主要优化：像素 ÷4，编码时间同步 ÷4）
+
+    std::atomic<int> statFps_{-1};
+    std::atomic<int> statStallMs_{-1};
+    std::atomic<uint32_t> statSeq_{0};
+    std::atomic<bool> statValid_{false};
 };
 
-}
+} // namespace echonode::executor

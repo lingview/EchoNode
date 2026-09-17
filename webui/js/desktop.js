@@ -4,14 +4,53 @@ const DesktopPanel = {
   active: "",
   canvas: null, ctx: null,
 
+  _winStart: 0,
+  _paints: 0,
+  _lastPaint: 0,
+  _stall: 0,
+  _maxSeq: 0,
+  _statTimer: 0,
+
+  _noteFrame(seq) {
+    const now = performance.now();
+    if (this._lastPaint) {
+      const gap = now - this._lastPaint;
+      if (gap > this._stall) this._stall = gap;
+    }
+    this._lastPaint = now;
+    this._paints++;
+    this._maxSeq = seq;
+  },
+
+  _startStats(taskId, agentId) {
+    this._winStart = performance.now();
+    this._paints = 0; this._stall = 0; this._lastPaint = 0; this._maxSeq = 0;
+    clearInterval(this._statTimer);
+    this._statTimer = setInterval(() => {
+      const st = this.streams[agentId];
+      if (!st || st.taskId !== taskId) { clearInterval(this._statTimer); return; }
+      const secs = (performance.now() - this._winStart) / 1000;
+      const fps = secs > 0 ? Math.round(this._paints / secs) : 0;
+      Ws.sendJson({ type: "desk_stat", agentId: agentId, taskId: taskId,
+                    fps: fps, stallMs: Math.round(this._stall), seq: this._maxSeq });
+      this._winStart = performance.now();
+      this._paints = 0; this._stall = 0;
+    }, 1000);
+  },
+
   fps() {
     const el = $("desk-fps");
     return el ? Number(el.value) : 30;
   },
 
+  scale() {
+    const el = $("desk-scale");
+    return el ? Number(el.value) : 0.5;
+  },
+
   start(agentId) {
     Ws.sendJson({ type: "task_req", agentId: agentId, action: "remote_start",
-                  payload: { fps: this.fps(), quality: 60 } });
+                  payload: { fps: this.fps(), quality: 60, scale: this.scale() } });
     $("desk-status").textContent = "正在连接远程桌面...";
   },
 
@@ -19,6 +58,8 @@ const DesktopPanel = {
     Ws.sendJson({ type: "task_req", agentId: agentId, action: "remote_stop",
                   payload: {} });
     this.streams[agentId] = null;
+    clearInterval(this._statTimer);
+    this._statTimer = 0;
     if (this.active === agentId) {
       $("desk-status").textContent = "已停止";
     }
@@ -41,6 +82,7 @@ const DesktopPanel = {
         try {
           const dim = JSON.parse(msg.data);
           this.streams[msg.agentId] = { taskId: msg.taskId, w: dim.w, h: dim.h };
+          this._startStats(msg.taskId, msg.agentId);
           if (this.canvas) {
             this.canvas.width = dim.w;
             this.canvas.height = dim.h;
@@ -93,13 +135,15 @@ const DesktopPanel = {
         const sr = stage.getBoundingClientRect();
         const cr = cv.getBoundingClientRect();
         const k = cr.width / cv.width;
+
+        const scL = stage.scrollLeft, scT = stage.scrollTop;
         const sh = this.cursorShape || { hotX: 0, hotY: 0, w: 16, h: 24 };
-        const dispW = Math.max(16, sh.w * k * 2);
+        const dispW = sh.w * k;
         const s = dispW / sh.w;
         el.style.width = dispW + "px";
         el.style.height = sh.h * s + "px";
-        el.style.left = cr.left - sr.left + nx * cr.width - sh.hotX * s + "px";
-        el.style.top = cr.top - sr.top + ny * cr.height - sh.hotY * s + "px";
+        el.style.left = cr.left - sr.left + scL + nx * cr.width - sh.hotX * s + "px";
+        el.style.top = cr.top - sr.top + scT + ny * cr.height - sh.hotY * s + "px";
         el.style.display = "block";
       }
       return true;
@@ -108,6 +152,7 @@ const DesktopPanel = {
 
       if (!this.canvas || !this.active) return true;
       const dv = new DataView(frame);
+      this._noteFrame(dv.getUint32(16));
       const count = dv.getUint16(21);
       const snap = this._snapshot();
       snap.getContext("2d").drawImage(this.canvas, 0, 0);
@@ -124,6 +169,7 @@ const DesktopPanel = {
     if (u8[20] === 0x06) {
       if (!this.canvas || !this.active) return true;
       const dv = new DataView(frame);
+      this._noteFrame(dv.getUint32(16));
       const cols = dv.getUint16(21), rows = dv.getUint16(23);
       const tw = dv.getUint16(25), th = dv.getUint16(27);
       const count = dv.getUint16(29);
@@ -146,6 +192,7 @@ const DesktopPanel = {
     }
     if (u8[20] !== 0x03) return false;
     if (!this.canvas || !this.active) return false;
+    this._noteFrame(new DataView(frame).getUint32(16));
     const blob = new Blob([u8.slice(21)], { type: "image/jpeg" });
     createImageBitmap(blob).then(bmp => {
       this.ctx.drawImage(bmp, 0, 0, this.canvas.width, this.canvas.height);

@@ -289,12 +289,16 @@ input[type=text] {
 
 
 #desk-stage { position: relative; }
-#desk-canvas { cursor: none; }  /* 暼作 系 本地光标，显示 被控端 光标 */
+#desk-canvas { cursor: none; }
 #desk-cursor {
   position: absolute;
   display: none;
   pointer-events: none;
   z-index: 5;
   background-repeat: no-repeat;
+  background-size: 100% 100%;
   image-rendering: auto;
+
+  filter: drop-shadow(0 0 1px rgba(255,255,255,0.95))
+          drop-shadow(0 0 1px rgba(0,0,0,0.85));
 }

@@ -57,6 +57,15 @@ void OperatorHub::onText(WsHdl hdl, const std::string& text) {
         if (authedFa) router_.onOperatorFileAck(hdl, j);
         return;
     }
+    if (type == "desk_stat") {
+        bool authedDs = false;
+        {
+            std::lock_guard<std::mutex> lk(mtx_);
+            authedDs = authed_.count(hdl) != 0;
+        }
+        if (authedDs) router_.onOperatorDeskStat(hdl, j);
+        return;
+    }
     if (type == "task_req") {
         bool authed = false;
         {

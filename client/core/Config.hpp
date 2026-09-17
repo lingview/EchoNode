@@ -16,6 +16,7 @@ struct Config {
     bool valid = true;
     std::string error;
     bool console = false;
+    bool deskStats = false;
 
     static Config fromArgs(int argc, char** argv) {
         Config cfg;
@@ -69,6 +70,8 @@ struct Config {
                 }
             } else if (arg == "--console") {
                 cfg.console = true;
+            } else if (arg == "--desk-stats") {
+                cfg.deskStats = true;
             } else if (arg.rfind("--", 0) == 0) {
                 cfg.valid = false;
                 cfg.error = "未知参数: " + arg;
@@ -89,9 +92,10 @@ struct Config {
     }
 
     static std::string usage() {
-        return "用法: client [ws://host:port] [token] [--heartbeat-ms N] [--config path] [--console]\n"
+        return "用法: client [ws://host:port] [token] [--heartbeat-ms N] [--config path] [--console] [--desk-stats]\n"
                "未给位置参数时从 ./config.json 读取，字段: url/token/heartbeatMs/"
-               "backoffBaseMs/backoffCapMs（均可选，命令行覆盖文件）；--console 显式弹窗看日志";
+               "backoffBaseMs/backoffCapMs（均可选，命令行覆盖文件）；--console 显式弹窗看日志，"
+               "--desk-stats 每 5s 打印远程桌面 [desk-stats] 分段耗时";
     }
 
 private:

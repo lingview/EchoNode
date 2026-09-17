@@ -31,6 +31,10 @@ static void initConsoleUtf8() {
 static void setupStdio(bool showConsole) {
     if (showConsole) {
         AllocConsole();
+        FILE* tmp = nullptr;
+        freopen_s(&tmp, "CONOUT$", "w", stdout);
+        freopen_s(&tmp, "CONOUT$", "w", stderr);
+        freopen_s(&tmp, "CONIN$", "r", stdin);
         return;
     }
     FILE* tmp = nullptr;
@@ -104,13 +108,20 @@ static int agentMain(int argc, char** argv) {
             client.sendText(echonode::protocol::toJson(result).dump());
         });
     deskExecutor->setInputInjector(echonode::platform::createInputInjector());
+    deskExecutor->setStatsEnabled(cfg.deskStats);
+    auto* deskPtr = deskExecutor.get();
     dispatcher.add(std::move(deskExecutor));
 
-    client.setTextHook([&sessionsPtr, filePtr](const nlohmann::json& j) {
+    client.setTextHook([&sessionsPtr, filePtr, deskPtr](const nlohmann::json& j) {
         const std::string type = j.value("type", std::string{});
         if (type == "file_ack") {
             filePtr->onFileAck(j.value("taskId", std::string{}),
                                j.value("ackedOffset", size_t{0}));
+            return true;
+        }
+        if (type == "desk_stat") {
+            deskPtr->onDeskStat(j.value("fps", 0), j.value("stallMs", 0),
+                                j.value("seq", uint32_t{0}));
             return true;
         }
         if (type == "shell_resize") {

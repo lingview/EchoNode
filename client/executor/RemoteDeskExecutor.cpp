@@ -18,7 +18,7 @@
 
 #ifdef _WIN32
 #include <windows.h>
-#include <mmsystem.h>  // timeBeginPeriod：见下方定时器粒度说明（需链接 winmm）
+#include <mmsystem.h>
 #else
 #include <X11/Xlib.h>
 #endif
@@ -30,9 +30,8 @@ using protocol::TaskResult;
 
 namespace {
 
-constexpr int kTile = 64; // tile 边长（降采样后像素）
+constexpr int kTile = 64;
 
-// 当前光标相对虚拟屏的像素坐标；抓屏不含光标，光标走 0x04/0x05 流
 bool getCursorLogical(int& x, int& y, int& screenW, int& screenH) {
 #ifdef _WIN32
     POINT pt{};
@@ -61,7 +60,6 @@ bool getCursorLogical(int& x, int& y, int& screenW, int& screenH) {
 
 #ifdef _WIN32
 
-// 当前光标的形状位图（RGBA）+ 热点；旧式 HCURSOR 的透明由 AND 掩码表达
 bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
                     int& hotX, int& hotY, void** shapeId) {
     CURSORINFO ci{};
@@ -99,21 +97,28 @@ bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
         BITMAP bmColor{};
         GetObject(ii.hbmColor, sizeof(bmColor), &bmColor);
         const bool is32 = bmColor.bmBitsPixel == 32;
+
+        bool hasAlpha = false;
+        if (is32)
+            for (size_t i = 0; i < color.size(); i += 4)
+                if (color[i + 3]) { hasAlpha = true; break; }
+        const bool premult = is32 && hasAlpha;
         std::vector<uint8_t> andBits;
-        if (!is32) extractBits(ii.hbmMask, h, h, andBits); // AND 半区在掩码顶部
+
+        if (!premult) extractBits(ii.hbmMask, 0, h, andBits);
         for (int y = 0; y < h; ++y) {
             const int srcY = h - 1 - y;
             for (int x = 0; x < w; ++x) {
                 const uint8_t* s =
                     &color[(static_cast<size_t>(srcY) * w + x) * 4];
                 uint8_t* d = &rgba[(static_cast<size_t>(y) * w + x) * 4];
-                if (is32) {
+                if (premult) {
                     const int a = s[3];
                     d[3] = static_cast<uint8_t>(a);
                     if (a > 0) {
-                        d[0] = static_cast<uint8_t>(std::min(255, s[2] * 255 / a)); // R
-                        d[1] = static_cast<uint8_t>(std::min(255, s[1] * 255 / a)); // G
-                        d[2] = static_cast<uint8_t>(std::min(255, s[0] * 255 / a)); // B
+                        d[0] = static_cast<uint8_t>(std::min(255, s[2] * 255 / a));
+                        d[1] = static_cast<uint8_t>(std::min(255, s[1] * 255 / a));
+                        d[2] = static_cast<uint8_t>(std::min(255, s[0] * 255 / a));
                     } else {
                         d[0] = d[1] = d[2] = 0;
                     }
@@ -124,14 +129,12 @@ bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
                     d[1] = s[1];
                     d[2] = s[0];
                     const bool andBit = a[0] != 0;
-                    const bool black =
-                        s[0] == 0 && s[1] == 0 && s[2] == 0;
+                    const bool black = s[0] == 0 && s[1] == 0 && s[2] == 0;
                     d[3] = (andBit && black) ? 0 : 255;
                 }
             }
         }
     } else {
-        // 单色光标：掩码上半 AND + 下半 XOR
         std::vector<uint8_t> maskBits;
         extractBits(ii.hbmMask, 0, bmMask.bmHeight, maskBits);
         for (int y = 0; y < h; ++y) {
@@ -160,7 +163,6 @@ bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
 
 #else
 
-// Linux：X11 光标位图提取依赖 XFixes，v1 用内置箭头占位
 bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
                     int& hotX, int& hotY, void** shapeId) {
     static const char* shape[] = {
@@ -187,14 +189,12 @@ bool getCursorImage(std::vector<uint8_t>& rgba, int& w, int& h,
 
 #endif
 
-// stb 内存编码回调：追加到 vector
 void stbAppend(void* ctx, void* data, int size) {
     auto* out = static_cast<std::vector<uint8_t>*>(ctx);
     const auto* p = static_cast<const uint8_t*>(data);
     out->insert(out->end(), p, p + size);
 }
 
-// 把一个 tile 从整帧裁成紧凑缓冲再交 stb 编码；各 tile 输出独立，可并行
 void encodeTile(const std::vector<uint8_t>& rgb, int frameW, int x0, int y0,
                 int tw, int th, int quality, std::vector<uint8_t>& jpeg) {
     std::vector<uint8_t> buf(static_cast<size_t>(tw) * th * 3);
@@ -208,8 +208,6 @@ void encodeTile(const std::vector<uint8_t>& rgb, int frameW, int x0, int y0,
     stbi_write_jpg_to_func(stbAppend, &jpeg, tw, th, 3, buf.data(), quality);
 }
 
-// 按原子游标瓜分 tile 多线程编码（tile 间无依赖，stb JPEG 无可变全局状态）；
-// 脏 tile 不足 8 个时不起线程，建线程本身的开销不划算
 void encodeTilesParallel(const std::vector<uint8_t>& rgb, int frameW, int frameH,
                          const std::vector<std::pair<int, int>>& tiles,
                          int quality, int tileSide,
@@ -248,24 +246,32 @@ std::vector<std::string> RemoteDeskExecutor::actions() const {
 
 RemoteDeskExecutor::~RemoteDeskExecutor() { stopLoop(); }
 
+void RemoteDeskExecutor::onDeskStat(int recvFps, int stallMs, uint32_t lastSeq) {
+    statFps_.store(recvFps, std::memory_order_relaxed);
+    statStallMs_.store(stallMs, std::memory_order_relaxed);
+    statSeq_.store(lastSeq, std::memory_order_relaxed);
+    statValid_.store(true, std::memory_order_relaxed);
+}
+
 TaskResult RemoteDeskExecutor::execute(Task task) {
     if (task.action == "remote_start") {
-        const int fps = std::clamp(task.payload.value("fps", 24), 1, 60);
-        const int quality =
-            std::clamp(task.payload.value("quality", 60), 20, 95);
-        scale_ = std::clamp(task.payload.value("scale", 0.5), 0.25, 1.0);
+        const int reqFps = std::clamp(task.payload.value("fps", 24), 1, 60);
+        const int reqQuality = std::clamp(task.payload.value("quality", 60), 20, 95);
+        const double scale = std::clamp(task.payload.value("scale", 0.5), 0.25, 1.0);
         stopLoop();
-        streamTaskId_ = task.taskId;
-        fps_ = fps;
-        quality_ = quality;
+
+        std::vector<QLevel> ladder;
+        for (int i = 0; i < 6; ++i) {
+            ladder.push_back({scale, std::max(24, reqQuality - i * 9),
+                              std::max(8, reqFps - i * 5)});
+        }
 
         int w = 0, h = 0;
         try {
             auto capture = echonode::platform::createScreenCapture();
             std::vector<uint8_t> rgb;
-            // 首帧多试几次；拿不到像素就报错，绝不把 0×0 报给前端（会把 canvas 尺寸设成 0）
             for (int i = 0; i < 8 && rgb.empty(); ++i) {
-                capture->captureScaledRgb(rgb, w, h, scale_);
+                capture->captureScaledRgb(rgb, w, h, scale);
                 if (rgb.empty())
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
@@ -275,7 +281,7 @@ TaskResult RemoteDeskExecutor::execute(Task task) {
             return {task.taskId, false, {}, "screen capture unavailable"};
         }
 
-        startLoop(task.taskId, fps, quality);
+        startLoop(task.taskId, std::move(ladder));
         return {task.taskId, true,
                 nlohmann::json{{"w", w}, {"h", h}}.dump(), {}};
     }
@@ -287,14 +293,12 @@ TaskResult RemoteDeskExecutor::execute(Task task) {
         if (!injector_) {
             return {task.taskId, false, {}, "injector unavailable"};
         }
-        for (const auto& ev : task.payload.value("events",
-                                                  nlohmann::json::array())) {
+        for (const auto& ev : task.payload.value("events", nlohmann::json::array())) {
             const std::string kind = ev.value("kind", "");
             if (kind == "move") {
                 injector_->mouseMove(ev.value("nx", 0.0), ev.value("ny", 0.0));
             } else if (kind == "button") {
-                injector_->mouseButton(ev.value("button", 0),
-                                       ev.value("down", true));
+                injector_->mouseButton(ev.value("button", 0), ev.value("down", true));
             } else if (kind == "wheel") {
                 injector_->mouseWheel(ev.value("dy", 0));
             } else if (kind == "key") {
@@ -306,38 +310,40 @@ TaskResult RemoteDeskExecutor::execute(Task task) {
     return {task.taskId, false, {}, "unsupported action"};
 }
 
-void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
-                                   int quality) {
+void RemoteDeskExecutor::startLoop(std::string taskId, std::vector<QLevel> ladder) {
+    statValid_.store(false);
     running_ = true;
-    worker_ = std::thread([this, taskId, fps, quality] {
+    worker_ = std::thread([this, taskId, ladder = std::move(ladder)] {
 #ifdef _WIN32
-        // 会话期间把定时器粒度提到 1ms（默认 15.6ms 会压住帧率），退出时还原
         timeBeginPeriod(1);
 #endif
-        // 用微秒算间隔，避免毫秒取整丢帧率预算
-        const auto interval =
-            std::chrono::microseconds(1000000 / std::max(1, fps));
+        const double scale = ladder.front().scale;
+        size_t level = 0;
+        bool forceFull = false;
         uint32_t seq = 0;
+        uint32_t tick = 0;
+        size_t sentThisWindow = 0;
         double lastCx = -1, lastCy = -1;
         void* lastShape = nullptr;
+
+        auto lastCtl = std::chrono::steady_clock::now();
+        int goodStreak = 0;
+        int badStreak = 0;
+        int lastRf = -1, lastStall = -1, lastSupply = 0;
 
         try {
             auto capture = echonode::platform::createScreenCapture();
 
-            // tile 网格（降采样后分辨率确定后初始化）
             int gridW = 0, gridH = 0, frameW = 0, frameH = 0;
-            std::vector<uint64_t> tileSums;   // 每 tile 字节和（脏检测）
-            // 待发送队列：脏 tile 全量入队、每 tick 按预算取，裁掉的不重扫（否则静止后残缺永久补不回）
+            std::vector<uint64_t> tileSums;
             std::vector<std::pair<int, int>> pending;
-            std::vector<uint8_t> queued; // 与 tileSums 等长：是否已在队列中（去重）
+            std::vector<uint8_t> queued;
             size_t pendingHead = 0;
 
-            // 组装并发送 0x06 增量帧：头 + tileCols/tileRows/tileW/tileH/count + tiles
             auto sendDelta = [&](int cols, int rows, int tw, int th,
                                  const std::vector<std::pair<int, int>>& tiles,
                                  const std::vector<std::vector<uint8_t>>& jpegs) {
                 if (!binarySender_) return;
-                // 布局：21B 头 + 10B 网格规格 + count×8B 元数据 + JPEG 数据连排
                 size_t dataSize = 0;
                 for (const auto& j : jpegs) dataSize += j.size();
                 std::vector<uint8_t> f(21 + 10 + tiles.size() * 8 + dataSize);
@@ -347,7 +353,7 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                 f[17] = (seq >> 16) & 0xFF;
                 f[18] = (seq >> 8) & 0xFF;
                 f[19] = seq & 0xFF;
-                f[20] = 0x06; // 桌面增量流
+                f[20] = 0x06;
                 auto put16 = [&](size_t off, int v) {
                     f[off] = (v >> 8) & 0xFF;
                     f[off + 1] = v & 0xFF;
@@ -358,85 +364,89 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                 put16(27, th);
                 put16(29, static_cast<int>(tiles.size()));
                 size_t meta = 31;
-                size_t data = 31 + tiles.size() * 8; // 元数据区之后才是数据区
+                size_t data = 31 + tiles.size() * 8;
                 for (size_t i = 0; i < tiles.size(); ++i) {
                     put16(meta, tiles[i].first);
                     put16(meta + 2, tiles[i].second);
-                    const uint32_t len =
-                        static_cast<uint32_t>(jpegs[i].size());
+                    const uint32_t len = static_cast<uint32_t>(jpegs[i].size());
                     f[meta + 4] = (len >> 24) & 0xFF;
                     f[meta + 5] = (len >> 16) & 0xFF;
                     f[meta + 6] = (len >> 8) & 0xFF;
                     f[meta + 7] = len & 0xFF;
                     meta += 8;
-                    std::memcpy(f.data() + data, jpegs[i].data(),
-                                jpegs[i].size());
+                    std::memcpy(f.data() + data, jpegs[i].data(), jpegs[i].size());
                     data += jpegs[i].size();
                 }
                 binarySender_(f.data(), f.size());
+                ++sentThisWindow;
             };
 
-            std::vector<uint8_t> rgb; // 复用容量，避免每帧重新分配 2.7MB
+            std::vector<uint8_t> rgb;
 
-            // ECHONODE_DESK_STATS 置位时每 5s 打印取帧/扫描/编码分段耗时
-            const bool statsOn = std::getenv("ECHONODE_DESK_STATS") != nullptr;
-            double accCap = 0, accScan = 0, accEnc = 0;
-            size_t accN = 0, accFresh = 0, accTiles = 0;
-            auto accStart = std::chrono::steady_clock::now();
+            const bool statsOn =
+                statsEnabled_ || std::getenv("ECHONODE_DESK_STATS") != nullptr;
             auto msTo = [](std::chrono::steady_clock::time_point a,
                            std::chrono::steady_clock::time_point b) {
                 return std::chrono::duration<double, std::milli>(b - a).count();
             };
+            double accCap = 0, accScan = 0, accEnc = 0;
+            size_t accN = 0, accFresh = 0, accTiles = 0;
+            auto accStart = std::chrono::steady_clock::now();
 
             while (running_) {
                 const auto tickStart = std::chrono::steady_clock::now();
+                const auto interval =
+                    std::chrono::microseconds(1000000 / std::max(1, ladder[level].fps));
                 const auto next = tickStart + interval;
                 const auto tCap0 = tickStart;
+
                 int w = 0, h = 0;
                 bool fresh = false;
                 try {
-                    fresh = capture->captureScaledRgb(rgb, w, h, scale_);
+                    fresh = capture->captureScaledRgb(rgb, w, h, scale);
                 } catch (const std::exception& e) {
-                    std::cerr << "[desk] capture error: " << e.what()
-                              << std::endl;
+                    std::cerr << "[desk] capture error: " << e.what() << std::endl;
                     continue;
                 }
                 const auto tCap1 = std::chrono::steady_clock::now();
-                // 首帧未就绪时 rgb 内容未定义，不能扫描/建网格，跳过等平台给出真画面
                 if (!fresh && rgb.empty()) continue;
 
-                // 本帧元数据（仅 GPU 路径权威）：脏矩形决定发哪些 tile，移动块走 0x07
                 std::vector<echonode::platform::DirtyRect> dirtyRects;
                 std::vector<echonode::platform::MoveRect> moveRects;
                 const bool haveMeta =
                     fresh && capture->lastFrameMetadata(dirtyRects, moveRects);
 
-                // 分辨率变化：重建 tile 网格并强制全量
                 if (w != frameW || h != frameH) {
                     frameW = w;
                     frameH = h;
                     gridW = (w + kTile - 1) / kTile;
                     gridH = (h + kTile - 1) / kTile;
                     const size_t n = static_cast<size_t>(gridW) * gridH;
-                    tileSums.assign(n, 0xFFFFFFFFFFFFFFFFULL); // 哨兵：强制所有 tile 首发必发
+                    tileSums.assign(n, 0xFFFFFFFFFFFFFFFFULL);
                     queued.assign(n, 0);
                     pending.clear();
                     pendingHead = 0;
                 }
 
-                // 脏检测：每 tile 全字节和（720p 全帧遍历 ~1-2ms）
-                // fresh=false 且非关键帧时不重扫（桌面确实没变），但队列里的欠账照旧往下发
-                constexpr size_t kTickBudget = 48; // 每 tick 最多编码/发送的 tile 数
-                const bool keyframe = (seq % 600 == 0); // 周期性关键帧防残缺
+                const size_t backlog = pending.size() - pendingHead;
+                const size_t fullTiles = static_cast<size_t>(gridW) * gridH;
+                if (fullTiles > 0 && backlog > fullTiles * 2) {
+                    pending.clear();
+                    pendingHead = 0;
+                    std::fill(queued.begin(), queued.end(), 0);
+                    forceFull = true;
+                }
+
+                constexpr size_t kTickBudget = 48;
+                const bool keyframe = (tick % 600 == 0) || forceFull;
+                forceFull = false;
                 if (fresh || keyframe) {
                     if (keyframe) {
-                        // 关键帧重新排队全部 tile，不依赖校验和（丢帧/重连会留缺口）
                         std::fill(queued.begin(), queued.end(), 0);
                         pending.clear();
                         pendingHead = 0;
                     }
                     if (haveMeta && !keyframe) {
-                        // 脏矩形→标记相交 tile，免去全帧字节和扫描
                         for (const auto& dr : dirtyRects) {
                             const int tx0 = std::max(0, dr.x / kTile);
                             const int ty0 = std::max(0, dr.y / kTile);
@@ -468,8 +478,7 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                                         p += 3;
                                     }
                                 }
-                                const size_t idx =
-                                    static_cast<size_t>(ty) * gridW + tx;
+                                const size_t idx = static_cast<size_t>(ty) * gridW + tx;
                                 if (keyframe || sum != tileSums[idx]) {
                                     tileSums[idx] = sum;
                                     if (!queued[idx]) {
@@ -489,12 +498,11 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                     queued[static_cast<size_t>(t.second) * gridW + t.first] = 0;
                     dirty.push_back(t);
                 }
-                if (pendingHead == pending.size()) { // 已全部发出，回收内存从头部重来
+                if (pendingHead == pending.size()) {
                     pending.clear();
                     pendingHead = 0;
                 }
 
-                // 光标（RDP/VNC 模式）：位置 0x04 小帧 + 形状变化发 0x05 PNG
                 int curX = 0, curY = 0, capW = 0, capH = 0;
                 if (getCursorLogical(curX, curY, capW, capH)) {
                     const double cnx = static_cast<double>(curX) / capW;
@@ -504,12 +512,10 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                         lastCy = cny;
                         if (binarySender_) {
                             std::vector<uint8_t> c(21 + 8);
-                            const auto idBytes =
-                                echonode::common::uuidToBytes(taskId);
+                            const auto idBytes = echonode::common::uuidToBytes(taskId);
                             for (int i = 0; i < 16; ++i) c[i] = idBytes[i];
                             c[20] = 0x04;
-                            float xy[2] = {static_cast<float>(cnx),
-                                           static_cast<float>(cny)};
+                            float xy[2] = {static_cast<float>(cnx), static_cast<float>(cny)};
                             std::memcpy(c.data() + 21, xy, 8);
                             binarySender_(c.data(), c.size());
                         }
@@ -525,8 +531,7 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                                                    rgba.data(), cw * 4) &&
                             !png.empty()) {
                             std::vector<uint8_t> f(21 + 8 + png.size());
-                            const auto idBytes =
-                                echonode::common::uuidToBytes(taskId);
+                            const auto idBytes = echonode::common::uuidToBytes(taskId);
                             for (int i = 0; i < 16; ++i) f[i] = idBytes[i];
                             f[20] = 0x05;
                             f[21] = (hx >> 8) & 0xFF;
@@ -543,29 +548,39 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                     }
                 }
 
-                // 发送 0x07 移动块（先于脏 tile，前端先搬移再叠新内容）
+                bool sentContent = false;
                 if (haveMeta && !keyframe && !moveRects.empty() && binarySender_) {
                     std::vector<uint8_t> mf(23 + moveRects.size() * 12);
                     const auto idBytes = echonode::common::uuidToBytes(taskId);
                     for (int i = 0; i < 16; ++i) mf[i] = idBytes[i];
-                    mf[16] = (seq >> 24) & 0xFF; mf[17] = (seq >> 16) & 0xFF;
-                    mf[18] = (seq >> 8) & 0xFF; mf[19] = seq & 0xFF;
+                    mf[16] = (seq >> 24) & 0xFF;
+                    mf[17] = (seq >> 16) & 0xFF;
+                    mf[18] = (seq >> 8) & 0xFF;
+                    mf[19] = seq & 0xFF;
                     mf[20] = 0x07;
                     auto put16 = [&](size_t off, int v) {
-                        mf[off] = (v >> 8) & 0xFF; mf[off + 1] = v & 0xFF;
+                        mf[off] = (v >> 8) & 0xFF;
+                        mf[off + 1] = v & 0xFF;
                     };
                     put16(21, static_cast<int>(moveRects.size()));
                     size_t o = 23;
                     for (const auto& m : moveRects) {
-                        put16(o, m.sx); put16(o + 2, m.sy); put16(o + 4, m.dx);
-                        put16(o + 6, m.dy); put16(o + 8, m.w); put16(o + 10, m.h);
+                        put16(o, m.sx);
+                        put16(o + 2, m.sy);
+                        put16(o + 4, m.dx);
+                        put16(o + 6, m.dy);
+                        put16(o + 8, m.w);
+                        put16(o + 10, m.h);
                         o += 12;
                     }
                     binarySender_(mf.data(), mf.size());
+                    ++sentThisWindow;
+                    sentContent = true;
                 }
 
-                // 编码并发送脏 tile（无脏 tile 则不发）；分批发送防单帧过大
+                const int quality = ladder[level].quality;
                 if (!dirty.empty()) {
+                    sentContent = true;
                     constexpr size_t kMaxPerFrame = 24;
                     std::vector<std::vector<uint8_t>> jpegs;
                     encodeTilesParallel(rgb, w, h, dirty, quality, kTile, jpegs);
@@ -576,15 +591,56 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                     for (size_t i = 0; i < dirty.size(); ++i) {
                         batch.push_back(dirty[i]);
                         batchJpegs.emplace_back(std::move(jpegs[i]));
-                        if (batch.size() >= kMaxPerFrame ||
-                            i + 1 == dirty.size()) {
-                            sendDelta(gridW, gridH, kTile, kTile, batch,
-                                      batchJpegs);
+                        if (batch.size() >= kMaxPerFrame || i + 1 == dirty.size()) {
+                            sendDelta(gridW, gridH, kTile, kTile, batch, batchJpegs);
                             batch.clear();
                             batchJpegs.clear();
                         }
                     }
                 }
+
+
+                const auto now = std::chrono::steady_clock::now();
+                const std::chrono::duration<double> ctlElapsed = now - lastCtl;
+
+                if (!statValid_.load(std::memory_order_relaxed)) {
+                    lastCtl = now;
+                    sentThisWindow = 0;
+                } else if (ctlElapsed >= std::chrono::milliseconds(1000)) {
+                    lastCtl = now;
+                    if (statValid_.load(std::memory_order_relaxed) &&
+                        sentThisWindow > 0 && ctlElapsed.count() > 0) {
+                        const int rf = statFps_.load(std::memory_order_relaxed);
+                        const int st = statStallMs_.load(std::memory_order_relaxed);
+                        const int supplyFps = static_cast<int>(
+                            sentThisWindow / ctlElapsed.count() + 0.5);
+                        lastRf = rf; lastStall = st; lastSupply = supplyFps;
+
+                        if (supplyFps >= 5) {
+
+                            const bool bad = rf >= 0 && rf * 100 < supplyFps * 60;
+                            const bool good = rf * 100 >= supplyFps * 90;
+                            if (bad) {
+                                goodStreak = 0;
+                                if (++badStreak >= 2 && level + 1 < ladder.size()) {
+                                    ++level;
+                                    forceFull = true;
+                                    badStreak = 0;
+                                }
+                            } else {
+                                badStreak = 0;
+                                if (good && level > 0 && ++goodStreak >= 2) {
+                                    --level;
+                                    goodStreak = 0;
+                                }
+                            }
+                        }
+                    }
+                    sentThisWindow = 0;
+                }
+
+                if (sentContent) ++seq;
+                ++tick;
 
                 if (statsOn) {
                     const auto tEnd = std::chrono::steady_clock::now();
@@ -596,17 +652,17 @@ void RemoteDeskExecutor::startLoop(const std::string& taskId, int fps,
                     accTiles += dirty.size();
                     if (tEnd - accStart >= std::chrono::seconds(5)) {
                         std::fprintf(stderr,
-                                     "[desk-stats] tick=%zu fresh=%zu tiles=%zu "
-                                     "cap=%.1f scan=%.1f enc=%.1f(ms/tick)\n",
-                                     accN, accFresh, accTiles, accCap / accN,
-                                     accScan / accN, accEnc / accN);
+                                     "[desk-stats] level=%zu cap=%.1f scan=%.1f "
+                                     "enc=%.1f tiles=%zu rf=%d stall=%d sup=%d full=%dx%d\n",
+                                     level, accCap / accN, accScan / accN,
+                                     accEnc / accN, accTiles, lastRf, lastStall,
+                                     lastSupply, gridW, gridH);
                         accCap = accScan = accEnc = 0;
                         accN = accFresh = accTiles = 0;
                         accStart = tEnd;
                     }
                 }
 
-                ++seq;
                 std::this_thread::sleep_until(next);
             }
         } catch (const std::exception&) {
@@ -624,4 +680,4 @@ void RemoteDeskExecutor::stopLoop() {
     if (worker_.joinable()) worker_.join();
 }
 
-}
+} // namespace echonode::executor
