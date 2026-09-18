@@ -30,6 +30,7 @@ namespace echonode::server {
 
         void onOperatorShellData(WsHdl op, const nlohmann::json& j);
         void onOperatorFileAck(WsHdl op, const nlohmann::json& j);
+        void onOperatorDeskStat(WsHdl op, const nlohmann::json& j);
 
     private:
         struct Pending {

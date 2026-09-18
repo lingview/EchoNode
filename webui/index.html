@@ -33,37 +33,53 @@
 
     <div id="gutter-left" class="gutter" title="拖动调整宽度"></div>
 
-    <section id="center-panel">
-      <div id="center-tabs">
-        <button class="ctab active" data-view="terminal">终端</button>
-        <button class="ctab" data-view="desktop">远程桌面</button>
-        <span class="term-hint">中文乱码？在终端输入 chcp 65001 切换 UTF-8</span>
-      </div>
-      <div id="terminal-view-wrap">
-        <div id="terminal-tabs"></div>
-        <div id="terminal-stack">
-          <div id="terminal-hint" class="muted">选择左侧机器打开终端</div>
-        </div>
-      </div>
-      <div id="desktop-view" class="hidden">
-        <div id="desk-toolbar">
-          <button id="desk-start-btn">开始</button>
-          <button id="desk-stop-btn">停止</button>
-          <label class="muted" for="desk-fps">帧率
-            <select id="desk-fps">
-              <option value="15">15 省带宽</option>
-              <option value="30">30 标准</option>
-              <option value="60" selected>60 流畅</option>
-            </select>
-          </label>
-          <span id="desk-status" class="muted">未连接</span>
-        </div>
-        <div id="desk-stage">
-          <canvas id="desk-canvas" width="1280" height="800"></canvas>
-          <div id="desk-cursor"></div>
-        </div>
-      </div>
-    </section>
+      <section id="center-panel">
+          <div id="center-tabs">
+              <button class="ctab active" data-view="terminal">终端</button>
+              <button class="ctab" data-view="desktop">远程桌面</button>
+              <span class="term-hint">中文乱码？在终端输入 chcp 65001 切换 UTF-8</span>
+          </div>
+
+          <div id="terminal-view-wrap">
+              <div id="terminal-tabs"></div>
+              <div id="terminal-stack">
+                  <div id="terminal-hint" class="muted">选择左侧机器打开终端</div>
+              </div>
+          </div>
+
+          <div id="desktop-view" class="hidden">
+              <div id="desk-toolbar">
+                  <button id="desk-start-btn">开始</button>
+                  <button id="desk-stop-btn">停止</button>
+
+                  <label class="muted" for="desk-fps">
+                      帧率
+                      <select id="desk-fps">
+                          <option value="15">15 省带宽</option>
+                          <option value="30">30 标准</option>
+                          <option value="60" selected>60 流畅</option>
+                      </select>
+                  </label>
+
+                  <label class="muted" for="desk-scale">
+                      清晰度
+                      <select id="desk-scale">
+                          <option value="1">原生 100%</option>
+                          <option value="0.75">较高 75%</option>
+                          <option value="0.5" selected>标准 50%</option>
+                          <option value="0.35">流畅 35%</option>
+                      </select>
+                  </label>
+
+                  <span id="desk-status" class="muted">未连接</span>
+              </div>
+
+              <div id="desk-stage">
+                  <canvas id="desk-canvas" width="1280" height="800"></canvas>
+                  <div id="desk-cursor"></div>
+              </div>
+          </div>
+      </section>
 
     <div id="gutter-right" class="gutter" title="拖动调整宽度"></div>
 

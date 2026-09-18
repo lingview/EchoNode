@@ -314,4 +314,16 @@ void TaskRouter::onOperatorFileAck(WsHdl op, const nlohmann::json& j) {
     hub_.sendTextToAgent(agentId, j.dump());
 }
 
+void TaskRouter::onOperatorDeskStat(WsHdl op, const nlohmann::json& j) {
+    const std::string taskId = j.value("taskId", std::string{});
+    std::string agentId;
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        auto it = streams_.find(taskId);
+        if (it == streams_.end()) return;
+        agentId = it->second.agentId;
+    }
+    hub_.sendTextToAgent(agentId, j.dump());
+}
+
 } // namespace echonode::server

@@ -15,6 +15,8 @@ struct Config {
 
     bool valid = true;
     std::string error;
+    bool console = false;
+    bool deskStats = false;
 
     static Config fromArgs(int argc, char** argv) {
         Config cfg;
@@ -44,7 +46,6 @@ struct Config {
             }
         }
 
-        // 命令行参数覆盖配置文件字段
         for (int i = 1; i < argc; ++i) {
             std::string arg = argv[i];
             auto next = [&](const char* name) -> std::string {
@@ -67,6 +68,10 @@ struct Config {
                     cfg.error = "--heartbeat-ms 需要整数，收到: " + v;
                     return cfg;
                 }
+            } else if (arg == "--console") {
+                cfg.console = true;
+            } else if (arg == "--desk-stats") {
+                cfg.deskStats = true;
             } else if (arg.rfind("--", 0) == 0) {
                 cfg.valid = false;
                 cfg.error = "未知参数: " + arg;
@@ -79,17 +84,18 @@ struct Config {
             }
         }
 
-        if (cfg.valid && cfg.url.rfind("ws://", 0) != 0) {
+        if (cfg.valid && cfg.url.rfind("ws://", 0) != 0 && cfg.url.rfind("wss://", 0) != 0) {
             cfg.valid = false;
-            cfg.error = "url 仅支持 ws:// 前缀";
+            cfg.error = "url 仅支持 ws:// 或 wss:// 前缀";
         }
         return cfg;
     }
 
     static std::string usage() {
-        return "用法: client [ws://host:port] [token] [--heartbeat-ms N] [--config path]\n"
+        return "用法: client [ws://host:port] [token] [--heartbeat-ms N] [--config path] [--console] [--desk-stats]\n"
                "未给位置参数时从 ./config.json 读取，字段: url/token/heartbeatMs/"
-               "backoffBaseMs/backoffCapMs（均可选，命令行覆盖文件）";
+               "backoffBaseMs/backoffCapMs（均可选，命令行覆盖文件）；--console 显式弹窗看日志，"
+               "--desk-stats 每 5s 打印远程桌面 [desk-stats] 分段耗时";
     }
 
 private:

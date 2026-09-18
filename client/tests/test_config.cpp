@@ -144,6 +144,21 @@ int main() {
               "--heartbeat-ms 非整数被拒绝");
     }
 
+    {
+        Args a{"ws://1.2.3.4:8080/agent", "tok", "--console", "--desk-stats"};
+        Config c = Config::fromArgs(a.argc(), a.argv());
+        check(c.valid && c.url == "ws://1.2.3.4:8080/agent" && c.token == "tok" &&
+                  c.console && c.deskStats,
+              "--console/--desk-stats 合法开关置位，不影响 url/token");
+    }
+
+    {
+        Args a{"ws://1.2.3.4:8080/agent", "tok"};
+        Config c = Config::fromArgs(a.argc(), a.argv());
+        check(c.valid && !c.console && !c.deskStats,
+              "不带 --desk-stats 时默认关闭");
+    }
+
     for (const char* n : {"cfg_full.json", "cfg_token.json", "cfg_override.json",
                           "cfg_partial.json", "cfg_broken.json", "cfg_badtype.json",
                           "cfg_array.json"}) {

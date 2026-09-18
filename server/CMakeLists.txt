@@ -78,9 +78,9 @@ target_compile_definitions(integration_s1 PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(integration_s1 PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(integration_s1 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(integration_s1 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(integration_s1 PRIVATE echonode_common server_deps pthread X11)
+    target_link_libraries(integration_s1 PRIVATE echonode_common server_deps pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(integration_s2
@@ -115,9 +115,9 @@ target_compile_definitions(integration_s2 PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(integration_s2 PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(integration_s2 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(integration_s2 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(integration_s2 PRIVATE echonode_common server_deps pthread X11)
+    target_link_libraries(integration_s2 PRIVATE echonode_common server_deps pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(integration_s3
@@ -152,9 +152,9 @@ target_compile_definitions(integration_s3 PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(integration_s3 PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(integration_s3 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(integration_s3 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(integration_s3 PRIVATE echonode_common server_deps pthread X11)
+    target_link_libraries(integration_s3 PRIVATE echonode_common server_deps pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(integration_s4
@@ -189,9 +189,9 @@ target_compile_definitions(integration_s4 PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(integration_s4 PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(integration_s4 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(integration_s4 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(integration_s4 PRIVATE echonode_common server_deps pthread X11)
+    target_link_libraries(integration_s4 PRIVATE echonode_common server_deps pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(integration_s5
@@ -227,9 +227,9 @@ target_compile_definitions(integration_s5 PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(integration_s5 PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(integration_s5 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(integration_s5 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(integration_s5 PRIVATE echonode_common server_deps pthread X11)
+    target_link_libraries(integration_s5 PRIVATE echonode_common server_deps pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
 
 add_executable(integration_s6
@@ -260,7 +260,7 @@ target_compile_definitions(integration_s6 PRIVATE
         NOMINMAX)
 if(WIN32)
     target_compile_definitions(integration_s6 PRIVATE _WIN32_WINNT=0x0601)
-    target_link_libraries(integration_s6 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS})
+    target_link_libraries(integration_s6 PRIVATE echonode_common server_deps ws2_32 mswsock ${PLATFORM_LIBS} ${ECHONODE_TLS_LIBS})
 else()
-    target_link_libraries(integration_s6 PRIVATE echonode_common server_deps pthread X11)
+    target_link_libraries(integration_s6 PRIVATE echonode_common server_deps pthread X11 ${ECHONODE_TLS_LIBS})
 endif()
