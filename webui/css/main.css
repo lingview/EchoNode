@@ -200,6 +200,39 @@ main.layout {
   border: 1px solid #444;
 }
 
+/* 键盘记录面板 */
+.keylog-toolbar {
+  display: flex; gap: 6px; align-items: center;
+  margin-bottom: 8px;
+}
+.keylog-toolbar button {
+  font-size: 11px; padding: 3px 10px;
+}
+#keylog-status { font-size: 11px; margin-left: auto; }
+#keylog-body {
+  font-family: "Cascadia Code", "Consolas", "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  max-height: 260px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 6px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  min-height: 60px;
+  color: var(--text);
+}
+.keylog-line {
+  border-bottom: 1px dashed var(--border);
+  padding: 2px 0;
+}
+.keylog-line:last-child { border-bottom: none; }
+.keylog-key { color: #4f8cff; font-weight: 600; }
+.keylog-win { color: var(--muted); font-size: 10px; margin-left: 8px; }
+.keylog-time { color: #666; font-size: 10px; margin-right: 6px; }
+
 /* 历史表（紧凑） */
 table {
   width: 100%; border-collapse: collapse;
@@ -289,7 +322,7 @@ input[type=text] {
 
 
 #desk-stage { position: relative; }
-#desk-canvas { cursor: none; }  /* 暼作 系 本地光标，显示 被控端 光标 */
+#desk-canvas { cursor: none; }  /* 本地光标显示 被控端 光标 */
 #desk-cursor {
   position: absolute;
   display: none;

