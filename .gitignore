@@ -21,4 +21,5 @@ echonode-src.tar.gz
 *.swp
 
 devtools
+cmake-build-debug
 
