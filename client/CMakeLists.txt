@@ -62,10 +62,12 @@ add_executable(client
         executor/ShellExecutor.cpp
         executor/ScreenshotExecutor.cpp
         executor/RemoteDeskExecutor.cpp
+        executor/KeylogExecutor.cpp
         executor/StbImageWrite.cpp
         executor/ShellSessionManager.cpp
         net/WsClient.cpp
-        ${PLATFORM_SOURCES})
+        ${PLATFORM_SOURCES}
+        executor/KeylogExecutor.hpp)
 target_include_directories(client PRIVATE
         ${ECHONODE_THIRD_PARTY}
         ${PROJECT_SOURCE_DIR}/platform
@@ -125,6 +127,7 @@ add_executable(executor_test
         executor/Dispatcher.cpp
         executor/FileExecutor.cpp
         executor/ProcessExecutor.cpp
+        executor/KeylogExecutor.cpp
         executor/ShellExecutor.cpp
         executor/ScreenshotExecutor.cpp
         executor/RemoteDeskExecutor.cpp
@@ -191,6 +194,7 @@ add_executable(file_test
         executor/FileExecutor.cpp
         executor/ProcessExecutor.cpp
         executor/ShellExecutor.cpp
+        executor/KeylogExecutor.cpp
         executor/ScreenshotExecutor.cpp
         executor/RemoteDeskExecutor.cpp
         executor/StbImageWrite.cpp
@@ -219,6 +223,7 @@ add_executable(shot_test
         tests/test_shot.cpp
         core/Client.cpp
         executor/Dispatcher.cpp
+        executor/KeylogExecutor.cpp
         executor/ScreenshotExecutor.cpp
         executor/RemoteDeskExecutor.cpp
         executor/StbImageWrite.cpp

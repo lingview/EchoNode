@@ -7,125 +7,144 @@
   <link rel="stylesheet" href="/vendor/xterm.css">
 </head>
 <body>
-  <div id="login-view" class="login-wrap">
-    <form id="login-form" class="login-card">
-      <h1>EchoNode</h1>
-      <input id="login-user" type="text" placeholder="用户名" autocomplete="username" required>
-      <input id="login-pass" type="password" placeholder="密码" autocomplete="current-password" required>
-      <div id="login-error" class="error hidden"></div>
-      <button type="submit">登录</button>
-    </form>
-  </div>
+<div id="login-view" class="login-wrap">
+  <form id="login-form" class="login-card">
+    <h1>EchoNode</h1>
+    <input id="login-user" type="text" placeholder="用户名" autocomplete="username" required>
+    <input id="login-pass" type="password" placeholder="密码" autocomplete="current-password" required>
+    <div id="login-error" class="error hidden"></div>
+    <button type="submit">登录</button>
+  </form>
+</div>
 
-  <div id="main-view" class="hidden">
-    <header>
-      <h1>EchoNode 控制台</h1>
-      <span id="header-agent" class="muted"></span>
-      <button id="logout-btn">退出</button>
-    </header>
+<div id="main-view" class="hidden">
+  <header>
+    <h1>EchoNode 控制台</h1>
+    <span id="header-agent" class="muted"></span>
+    <button id="logout-btn">退出</button>
+  </header>
 
-    <main class="layout">
-      <aside id="machine-list">
-        <h2>机器</h2>
-        <div id="machine-cards"></div>
-        <p id="agents-empty" class="muted hidden">暂无在线机器</p>
-      </aside>
+  <main class="layout">
+    <aside id="machine-list">
+      <h2>机器</h2>
+      <div id="machine-cards"></div>
+      <p id="agents-empty" class="muted hidden">暂无在线机器</p>
+    </aside>
 
-      <div id="gutter-left" class="gutter" title="拖动调整宽度"></div>
+    <div id="gutter-left" class="gutter" title="拖动调整宽度"></div>
 
       <section id="center-panel">
-        <div id="center-tabs">
-          <button class="ctab active" data-view="terminal">终端</button>
-          <button class="ctab" data-view="desktop">远程桌面</button>
-          <span class="term-hint">中文乱码？在终端输入 chcp 65001 切换 UTF-8</span>
-        </div>
-        <div id="terminal-view-wrap">
-          <div id="terminal-tabs"></div>
-          <div id="terminal-stack">
-            <div id="terminal-hint" class="muted">选择左侧机器打开终端</div>
+          <div id="center-tabs">
+              <button class="ctab active" data-view="terminal">终端</button>
+              <button class="ctab" data-view="desktop">远程桌面</button>
+              <span class="term-hint">中文乱码？在终端输入 chcp 65001 切换 UTF-8</span>
           </div>
-        </div>
-        <div id="desktop-view" class="hidden">
-          <div id="desk-toolbar">
-            <button id="desk-start-btn">开始</button>
-            <button id="desk-stop-btn">停止</button>
-            <label class="muted" for="desk-fps">帧率
-              <select id="desk-fps">
-                <option value="15">15 省带宽</option>
-                <option value="30">30 标准</option>
-                <option value="60" selected>60 流畅</option>
-              </select>
-            </label>
-            <label class="muted" for="desk-scale">清晰度
-              <select id="desk-scale">
-                <option value="1">原生 100%</option>
-                <option value="0.75">较高 75%</option>
-                <option value="0.5" selected>标准 50%</option>
-                <option value="0.35">流畅 35%</option>
-              </select>
-            </label>
-            <span id="desk-status" class="muted">未连接</span>
+
+          <div id="terminal-view-wrap">
+              <div id="terminal-tabs"></div>
+              <div id="terminal-stack">
+                  <div id="terminal-hint" class="muted">选择左侧机器打开终端</div>
+              </div>
           </div>
-          <div id="desk-stage">
-            <canvas id="desk-canvas" width="1280" height="800"></canvas>
-            <div id="desk-cursor"></div>
+
+          <div id="desktop-view" class="hidden">
+              <div id="desk-toolbar">
+                  <button id="desk-start-btn">开始</button>
+                  <button id="desk-stop-btn">停止</button>
+
+                  <label class="muted" for="desk-fps">
+                      帧率
+                      <select id="desk-fps">
+                          <option value="15">15 省带宽</option>
+                          <option value="30">30 标准</option>
+                          <option value="60" selected>60 流畅</option>
+                      </select>
+                  </label>
+
+                  <label class="muted" for="desk-scale">
+                      清晰度
+                      <select id="desk-scale">
+                          <option value="1">原生 100%</option>
+                          <option value="0.75">较高 75%</option>
+                          <option value="0.5" selected>标准 50%</option>
+                          <option value="0.35">流畅 35%</option>
+                      </select>
+                  </label>
+
+                  <span id="desk-status" class="muted">未连接</span>
+              </div>
+
+              <div id="desk-stage">
+                  <canvas id="desk-canvas" width="1280" height="800"></canvas>
+                  <div id="desk-cursor"></div>
+              </div>
           </div>
-        </div>
       </section>
 
-      <div id="gutter-right" class="gutter" title="拖动调整宽度"></div>
+    <div id="gutter-right" class="gutter" title="拖动调整宽度"></div>
 
-      <aside id="side-panel">
-        <div id="shot-panel" class="side-block">
-          <h2>截图</h2>
-          <button id="shot-btn">截取屏幕</button>
-          <span id="shot-status" class="muted"></span>
-          <img id="shot-image" class="hidden" alt="screenshot">
+    <aside id="side-panel">
+      <div id="shot-panel" class="side-block">
+        <h2>截图</h2>
+        <button id="shot-btn">截取屏幕</button>
+        <span id="shot-status" class="muted"></span>
+        <img id="shot-image" class="hidden" alt="screenshot">
+      </div>
+      <div id="keylog-panel" class="side-block grow">
+        <h2>键盘记录</h2>
+        <div class="keylog-toolbar">
+          <button id="keylog-start-btn">开始</button>
+          <button id="keylog-stop-btn">停止</button>
+          <button id="keylog-clear-btn">清空</button>
+          <span id="keylog-status" class="muted">未启动</span>
         </div>
-        <div id="sysinfo-panel" class="side-block">
-          <h2>系统信息</h2>
-          <button id="sysinfo-btn">刷新</button>
-          <pre id="sysinfo-body" class="muted">选择机器后点击刷新</pre>
-        </div>
-        <div id="history-panel" class="side-block grow">
-          <h2>命令历史</h2>
-          <table id="tasks-table">
-            <thead><tr><th>时间</th><th>动作</th><th>状态</th></tr></thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <div id="files-panel" class="side-block">
-          <h2>文件传输</h2>
-          <div class="file-group">
-            <div class="file-label">从 agent 下载到本机</div>
-            <div class="file-row">
-              <input id="file-path" type="text" placeholder="agent 上的文件路径，如 C:\\Users\\lingview\\Desktop\\a.txt">
-              <button id="file-download-btn">下载</button>
-            </div>
+        <div id="keylog-body"></div>
+      </div>
+      <div id="sysinfo-panel" class="side-block">
+        <h2>系统信息</h2>
+        <button id="sysinfo-btn">刷新</button>
+        <pre id="sysinfo-body" class="muted">选择机器后点击刷新</pre>
+      </div>
+      <div id="history-panel" class="side-block grow">
+        <h2>命令历史</h2>
+        <table id="tasks-table">
+          <thead><tr><th>时间</th><th>动作</th><th>状态</th></tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div id="files-panel" class="side-block">
+        <h2>文件传输</h2>
+        <div class="file-group">
+          <div class="file-label">从 agent 下载到本机</div>
+          <div class="file-row">
+            <input id="file-path" type="text" placeholder="agent 上的文件路径，如 C:\\Users\\lingview\\Desktop\\a.txt">
+            <button id="file-download-btn">下载</button>
           </div>
-          <div class="file-group">
-            <div class="file-label">从本机上传到 agent</div>
-            <div class="file-row">
-              <input id="file-input" type="file" title="选择本机文件">
-            </div>
-            <div class="file-row">
-              <input id="file-remote-path" type="text" placeholder="保存到 agent 的路径，如 C:\\Users\\lingview\\Desktop\\up.exe">
-              <button id="file-upload-btn">上传</button>
-            </div>
-          </div>
-          <span id="files-status" class="muted"></span>
         </div>
-      </aside>
-    </main>
-  </div>
+        <div class="file-group">
+          <div class="file-label">从本机上传到 agent</div>
+          <div class="file-row">
+            <input id="file-input" type="file" title="选择本机文件">
+          </div>
+          <div class="file-row">
+            <input id="file-remote-path" type="text" placeholder="保存到 agent 的路径，如 C:\\Users\\lingview\\Desktop\\up.exe">
+            <button id="file-upload-btn">上传</button>
+          </div>
+        </div>
+        <span id="files-status" class="muted"></span>
+      </div>
+    </aside>
+  </main>
+</div>
 
-  <script src="/vendor/xterm.js"></script>
-  <script src="/js/api.js"></script>
-  <script src="/js/ws.js"></script>
-  <script src="/js/terminal.js"></script>
-  <script src="/js/files.js"></script>
-  <script src="/js/shots.js"></script>
-  <script src="/js/desktop.js"></script>
-  <script src="/js/main.js"></script>
+<script src="/vendor/xterm.js"></script>
+<script src="/js/api.js"></script>
+<script src="/js/ws.js"></script>
+<script src="/js/terminal.js"></script>
+<script src="/js/files.js"></script>
+<script src="/js/shots.js"></script>
+<script src="/js/desktop.js"></script>
+<script src="/js/keylog.js"></script>
+<script src="/js/main.js"></script>
 </body>
 </html>
